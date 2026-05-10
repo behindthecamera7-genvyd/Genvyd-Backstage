@@ -1,0 +1,105 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["uid", "email"]
+    },
+    "Project": {
+      "title": "Project",
+      "description": "Narrative project container",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "script": { "type": "string" },
+        "websiteUrl": { "type": "string" },
+        "visualTheme": { "type": "string" },
+        "brandReport": { "$ref": "BrandReport" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["id", "userId", "name", "updatedAt"]
+    },
+    "BrandReport": {
+      "title": "BrandReport",
+      "description": "AI-generated brand analysis",
+      "type": "object",
+      "properties": {
+        "mission": { "type": "string" },
+        "motifs": { "type": "array", "items": { "type": "string" } },
+        "targetSoftware": { "type": "string" },
+        "characterDescription": { "type": "string" },
+        "cinematicProfile": {
+          "type": "object",
+          "properties": {
+            "lighting": { "type": "string" },
+            "palette": { "type": "string" },
+            "lens": { "type": "string" }
+          }
+        },
+        "narrativeAnchor": { "type": "string" }
+      }
+    },
+    "Shot": {
+      "title": "Shot",
+      "description": "A single narrative segment/shot",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "index": { "type": "string" },
+        "title": { "type": "string" },
+        "type": { "type": "string", "enum": ["establishing", "detail", "glitch", "narrative"] },
+        "selectedVersionId": { "type": "string" },
+        "dialogue": { "type": "string" },
+        "promptIdeas": { "type": "string" },
+        "notes": { "type": "string" },
+        "context": { "type": "string", "enum": ["Legacy", "Wheelio", "Transition"] },
+        "isCharacterShot": { "type": "boolean" },
+        "requiresFaceSwap": { "type": "boolean" }
+      },
+      "required": ["id", "index", "title", "type"]
+    },
+    "ShotVersion": {
+      "title": "ShotVersion",
+      "description": "A specific iteration of a shot preview",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "imagePreview": { "type": "string" },
+        "audioPreview": { "type": "string" },
+        "imagePrompt": { "type": "string" },
+        "motionPrompt": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "isFavorite": { "type": "boolean" }
+      },
+      "required": ["id", "imagePrompt", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User account documents"
+    },
+    "/projects/{projectId}": {
+      "schema": "Project",
+      "description": "Top-level project metadata"
+    },
+    "/projects/{projectId}/shots/{shotId}": {
+      "schema": "Shot",
+      "description": "Individual shots within a project"
+    },
+    "/projects/{projectId}/shots/{shotId}/versions/{versionId}": {
+      "schema": "ShotVersion",
+      "description": "Historical versions of a shot's visual output"
+    }
+  }
+}

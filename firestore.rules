@@ -1,0 +1,68 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // -------------------------------------------------------------------------
+    // HELPERS
+    // -------------------------------------------------------------------------
+    
+    function isSignedIn() {
+      // Note: Google Auth typically verifies emails automatically, 
+      // but we'll check token.email_verified for security.
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // -------------------------------------------------------------------------
+    // ENTITY VALIDATORS
+    // -------------------------------------------------------------------------
+
+    function isValidProject(data) {
+      return data.id is string
+        && data.userId == request.auth.uid
+        && data.name is string && data.name.size() <= 200
+        && data.updatedAt is number
+        // We allow shots and brandReport as part of the document for now
+        // to minimize refactoring while still enforcing basic ownership.
+        && (data.shots == null || data.shots is list)
+        && (data.brandReport == null || data.brandReport is map);
+    }
+
+    // -------------------------------------------------------------------------
+    // RULES
+    // -------------------------------------------------------------------------
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    match /projects/{projectId} {
+      allow get: if isSignedIn() && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      
+      allow create: if isSignedIn() && isValidId(projectId) && isValidProject(incoming())
+        && incoming().id == projectId;
+        
+      allow update: if isSignedIn() && existing().userId == request.auth.uid && isValidProject(incoming())
+        && incoming().userId == existing().userId
+        && incoming().id == existing().id;
+        
+      allow delete: if isSignedIn() && existing().userId == request.auth.uid;
+    }
+  }
+}

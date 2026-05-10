@@ -1,0 +1,118 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // -------------------------------------------------------------------------
+    // HELPERS
+    // -------------------------------------------------------------------------
+    
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // -------------------------------------------------------------------------
+    // ENTITY VALIDATORS
+    // -------------------------------------------------------------------------
+
+    function isValidUser(data) {
+      return data.uid == request.auth.uid 
+        && data.email is string 
+        && (data.displayName == null || data.displayName is string)
+        && (data.photoURL == null || data.photoURL is string);
+    }
+
+    function isValidProject(data) {
+      return data.id is string
+        && data.userId == request.auth.uid
+        && data.name is string && data.name.size() <= 200
+        && data.updatedAt is number;
+    }
+
+    function isValidShot(data) {
+      return data.id is string
+        && data.index is string
+        && data.title is string && data.title.size() <= 500
+        && data.type in ['establishing', 'detail', 'glitch', 'narrative'];
+    }
+
+    function isValidShotVersion(data) {
+      return data.id is string
+        && data.imagePrompt is string && data.imagePrompt.size() <= 5000
+        && data.timestamp is number;
+    }
+
+    // -------------------------------------------------------------------------
+    // RULES
+    // -------------------------------------------------------------------------
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidUser(incoming());
+      allow update: if isOwner(userId) && isValidUser(incoming())
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL']);
+    }
+
+    match /projects/{projectId} {
+      allow get: if isSignedIn() && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      
+      allow create: if isSignedIn() && isValidId(projectId) && isValidProject(incoming())
+        && incoming().id == projectId;
+        
+      allow update: if isSignedIn() && existing().userId == request.auth.uid && isValidProject(incoming())
+        && incoming().userId == existing().userId
+        && incoming().id == existing().id;
+        
+      allow delete: if isSignedIn() && existing().userId == request.auth.uid;
+
+      // Subcollections
+      match /shots/{shotId} {
+        function projectOwner() {
+          return get(/databases/$(database)/documents/projects/$(projectId)).data.userId;
+        }
+
+        allow read: if isSignedIn() && projectOwner() == request.auth.uid;
+        
+        allow create: if isSignedIn() && isValidId(shotId) && projectOwner() == request.auth.uid && isValidShot(incoming())
+          && incoming().id == shotId;
+          
+        allow update: if isSignedIn() && projectOwner() == request.auth.uid && isValidShot(incoming())
+          && incoming().id == existing().id;
+          
+        allow delete: if isSignedIn() && projectOwner() == request.auth.uid;
+
+        match /versions/{versionId} {
+          allow read: if isSignedIn() && projectOwner() == request.auth.uid;
+          
+          allow create: if isSignedIn() && isValidId(versionId) && projectOwner() == request.auth.uid && isValidShotVersion(incoming())
+            && incoming().id == versionId;
+            
+          allow update: if isSignedIn() && projectOwner() == request.auth.uid && isValidShotVersion(incoming())
+            && incoming().id == existing().id;
+            
+          allow delete: if isSignedIn() && projectOwner() == request.auth.uid;
+        }
+      }
+    }
+  }
+}
