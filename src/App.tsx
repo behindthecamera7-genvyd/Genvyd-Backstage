@@ -90,7 +90,7 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
     if (this.state.hasError) {
       return (
         <div className="fixed inset-0 bg-black flex items-center justify-center p-10 text-center z-[9999]">
-          <div className="max-w-md w-full space-y-8 glass-panel p-12 rounded-[3.5rem] border-brand-gold/30 shadow-[0_0_100px_rgba(212,175,55,0.1)] bg-black/80 backdrop-blur-3xl">
+          <div className="max-w-md w-full space-y-8 glass-panel p-12 rounded-[3.5rem] border-brand-gold/30 shadow-[0_0_100px_rgba(255,59,59,0.1)] bg-black/80 backdrop-blur-3xl">
             <div className="relative">
               <div className="w-24 h-24 mx-auto rounded-full border-2 border-brand-gold/10 border-t-brand-gold animate-spin" />
               <Zap size={32} className="text-brand-gold absolute inset-0 m-auto animate-pulse" />
@@ -1164,7 +1164,7 @@ function AppBody() {
         <motion.div 
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
-          className="max-w-3xl w-full space-y-10 glass-panel p-10 rounded-3xl shadow-[0_0_100px_rgba(212,175,55,0.05)] border-brand-gold/10"
+          className="max-w-3xl w-full space-y-10 glass-panel p-10 rounded-3xl shadow-[0_0_100px_rgba(255,59,59,0.05)] border-brand-gold/10"
         >
           <div className="text-center space-y-4">
             <motion.div
@@ -2095,7 +2095,7 @@ function AppBody() {
                 <motion.div 
                   animate={{ rotate: 360 }}
                   transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
-                  className="w-20 h-20 mx-auto rounded-full border-2 border-brand-gold/5 border-t-brand-gold relative shadow-[0_0_30px_rgba(212,175,55,0.2)]"
+                  className="w-20 h-20 mx-auto rounded-full border-2 border-brand-gold/5 border-t-brand-gold relative shadow-[0_0_30px_rgba(255,59,59,0.2)]"
                 />
                 <div className="absolute inset-0 flex items-center justify-center">
                   <Zap size={24} className="text-brand-gold animate-pulse shadow-brand-gold" />
@@ -2114,7 +2114,7 @@ function AppBody() {
                   initial={{ width: 0 }}
                   animate={{ width: "100%" }}
                   transition={{ duration: 15, ease: "linear" }}
-                  className="h-full bg-brand-gold shadow-[0_0_20px_rgba(212,175,55,1)]"
+                  className="h-full bg-brand-gold shadow-[0_0_20px_rgba(255,59,59,1)]"
                 />
               </div>
               
