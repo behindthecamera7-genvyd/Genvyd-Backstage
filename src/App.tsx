@@ -154,8 +154,17 @@ function AppBody() {
 
   // Auth Listener
   useEffect(() => {
+    let unsubFirestore: (() => void) | null = null;
+    
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
+      
+      // Clear existing firestore listener if any
+      if (unsubFirestore) {
+        unsubFirestore();
+        unsubFirestore = null;
+      }
+
       if (currentUser) {
         // Fetch projects from Firestore
         const q = query(
@@ -164,16 +173,14 @@ function AppBody() {
           orderBy("updatedAt", "desc")
         );
 
-        const unsubFirestore = onSnapshot(q, (snapshot) => {
+        unsubFirestore = onSnapshot(q, (snapshot) => {
           const fetchedProjects = snapshot.docs.map(doc => doc.data() as Project);
           setProjects(fetchedProjects);
           setIsInitializing(false);
         }, (error) => {
-          handleFirestoreError(error, OperationType.LIST, "projects");
+          console.error("Firestore sync error:", error);
           setIsInitializing(false);
         });
-
-        return () => unsubFirestore();
       } else {
         // Fallback to local storage or clear if needed
         const saved = localStorage.getItem("genvyd_projects");
@@ -184,10 +191,14 @@ function AppBody() {
             console.error("Local load failed", e);
           }
         }
+        setIsInitializing(false);
       }
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      if (unsubFirestore) unsubFirestore();
+    };
   }, []);
 
   const login = async () => {

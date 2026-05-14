@@ -1,9 +1,24 @@
 import { GoogleGenAI } from "@google/genai";
 import { BrandReport, Shot } from "./types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+let aiInstance: GoogleGenAI | null = null;
+
+function getAI() {
+  if (!aiInstance) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      console.warn("GEMINI_API_KEY is missing. AI features will be disabled.");
+      // Create a dummy instance or handle it gracefully in calls
+      aiInstance = new GoogleGenAI({ apiKey: "MISSING_KEY" }); 
+    } else {
+      aiInstance = new GoogleGenAI({ apiKey });
+    }
+  }
+  return aiInstance;
+}
 
 export async function generateBrandReport(script: string, websiteUrl?: string, visualTheme?: string, researchContext: string = ""): Promise<BrandReport> {
+  const ai = getAI();
   const prompt = `
     You are the Genvyd Production Architect. 
     Analyze the following brand context. 
@@ -43,6 +58,7 @@ export async function generateBrandReport(script: string, websiteUrl?: string, v
 }
 
 export async function generateShotSequence(script: string, brandReport: BrandReport): Promise<Shot[]> {
+  const ai = getAI();
   const prompt = `
     You are a Film Director. Break the following script into a production shot list (sub-shot architecture).
     
@@ -104,6 +120,7 @@ export async function generateShotSequence(script: string, brandReport: BrandRep
 }
 
 export async function regenerateShotPrompt(shot: Shot, brandReport: BrandReport, ideas?: string): Promise<{ image: string; motion: string }> {
+  const ai = getAI();
   const prompt = `
     You are a Film Director. Regenerate the image and motion prompts for this shot based on the following context.
     
@@ -146,6 +163,7 @@ export async function regenerateShotPrompt(shot: Shot, brandReport: BrandReport,
 }
 
 export async function refineAllPrompts(shots: Shot[], report: BrandReport, styleDirective: string): Promise<{ shotId: string, imagePrompt: string, motionPrompt: string }[]> {
+  const ai = getAI();
   const prompt = `
     You are the Genvyd Creative Director. 
     We have a complete shot sequence, but we need to adjust the overall STYLE/VIBE while keeping the actual content/actions the same.
