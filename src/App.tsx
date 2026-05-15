@@ -45,6 +45,7 @@ import html2canvas from "html2canvas";
 import { 
   auth, 
   db, 
+  storage,
   googleProvider, 
   OperationType, 
   handleFirestoreError 
@@ -69,6 +70,7 @@ import {
   serverTimestamp,
   writeBatch
 } from "firebase/firestore";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -765,54 +767,82 @@ function AppBody() {
     }
   };
 
-  const handleFileUpload = (shotId: string, file: File) => {
+  const handleFileUpload = async (shotId: string, file: File) => {
     if (file.size > 10 * 1024 * 1024) {
       alert("File is too large (max 10MB for stability).");
       return;
     }
 
     setLoading(true);
-    setLoadingMessage("Processing visual asset...");
+    setLoadingMessage("Uploading visual asset...");
 
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const dataUrl = e.target?.result as string;
-        const shot = shots.find(s => s.id === shotId);
-        if (!shot) return;
-
-        const newVersions = shot.versions.map(v => 
-          v.id === shot.selectedVersionId ? { ...v, imagePreview: dataUrl } : v
-        );
-        updateShot(shotId, { versions: newVersions });
-      } catch (err) {
-        console.error("File processing failed:", err);
-      } finally {
-        setLoading(false);
-        setLoadingMessage("");
+    try {
+      let previewUrl = "";
+      
+      if (user && syncEnabled) {
+        // Upload to Firebase Storage
+        const fileRef = ref(storage, `users/${user.uid}/projects/${currentProjectId}/shots/${shotId}/${Date.now()}_${file.name}`);
+        const snapshot = await uploadBytes(fileRef, file);
+        previewUrl = await getDownloadURL(snapshot.ref);
+      } else {
+        // Fallback to local Base64
+        previewUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = (e) => resolve(e.target?.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
       }
-    };
-    reader.onerror = () => {
-      setLoading(false);
-      setLoadingMessage("");
-      console.error("FileReader error");
-    };
-    reader.readAsDataURL(file);
-  };
 
-  const handleAudioUpload = (shotId: string, file: File) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const dataUrl = e.target?.result as string;
       const shot = shots.find(s => s.id === shotId);
       if (!shot) return;
 
       const newVersions = shot.versions.map(v => 
-        v.id === shot.selectedVersionId ? { ...v, audioPreview: dataUrl } : v
+        v.id === shot.selectedVersionId ? { ...v, imagePreview: previewUrl } : v
       );
       updateShot(shotId, { versions: newVersions });
-    };
-    reader.readAsDataURL(file);
+    } catch (err) {
+      console.error("File processing failed:", err);
+      alert("Failed to upload/process file. See console for details.");
+    } finally {
+      setLoading(false);
+      setLoadingMessage("");
+    }
+  };
+
+  const handleAudioUpload = async (shotId: string, file: File) => {
+    setLoading(true);
+    setLoadingMessage("Uploading audio asset...");
+    
+    try {
+      let audioUrl = "";
+      
+      if (user && syncEnabled) {
+        const fileRef = ref(storage, `users/${user.uid}/projects/${currentProjectId}/shots/${shotId}/audio_${Date.now()}_${file.name}`);
+        const snapshot = await uploadBytes(fileRef, file);
+        audioUrl = await getDownloadURL(snapshot.ref);
+      } else {
+        audioUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = (e) => resolve(e.target?.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+      }
+
+      const shot = shots.find(s => s.id === shotId);
+      if (!shot) return;
+
+      const newVersions = shot.versions.map(v => 
+        v.id === shot.selectedVersionId ? { ...v, audioPreview: audioUrl } : v
+      );
+      updateShot(shotId, { versions: newVersions });
+    } catch (err) {
+      console.error("Audio upload failed:", err);
+    } finally {
+      setLoading(false);
+      setLoadingMessage("");
+    }
   };
 
   const exportDirectorsPack = async () => {
@@ -1278,7 +1308,7 @@ function AppBody() {
             >
               {loading ? (
                 <div className="flex items-center gap-3">
-                  <div className="animate-spin h-5 w-5 border-2 border-black border-t-transparent rounded-full" />
+                  <div className="animate-spin h-5 w-5 border-2 border-brand-red border-t-transparent rounded-full" />
                   <span className="uppercase tracking-widest text-xs font-mono">Synthesizing Aesthetic Layer...</span>
                 </div>
               ) : (
@@ -1295,7 +1325,7 @@ function AppBody() {
   }
 
   return (
-    <div className="min-h-screen bg-brand-ink text-white font-sans selection:bg-brand-gold selection:text-black">
+    <div className="min-h-screen bg-brand-ink text-white font-sans selection:bg-brand-red selection:text-white">
       {/* Header */}
       <header className="border-b border-white/5 p-6 flex flex-wrap items-center justify-between gap-6 sticky top-0 bg-brand-ink/90 backdrop-blur-xl z-[100]">
         <div className="flex items-center gap-6">
@@ -1338,8 +1368,8 @@ function AppBody() {
               {user.photoURL ? (
                 <img src={user.photoURL} className="w-8 h-8 rounded-full border border-brand-gold/20 shadow-lg" alt={user.displayName || "User"} />
               ) : (
-                <div className="w-8 h-8 rounded-full bg-brand-gold/10 flex items-center justify-center border border-brand-gold/20">
-                  <UserIcon size={16} className="text-brand-gold" />
+                <div className="w-8 h-8 rounded-full bg-brand-red/10 flex items-center justify-center border border-brand-red/20">
+                  <UserIcon size={16} className="text-brand-red" />
                 </div>
               )}
               <button 
@@ -1355,7 +1385,7 @@ function AppBody() {
               <button 
                 onClick={login}
                 disabled={isLoggingIn}
-                className="flex items-center gap-2 px-4 py-2 bg-brand-gold/10 text-brand-gold border border-brand-gold/20 rounded-xl text-[10px] uppercase font-mono tracking-widest font-black transition-all hover:bg-brand-gold hover:text-black no-print disabled:opacity-50"
+                className="flex items-center gap-2 px-4 py-2 bg-brand-red/10 text-brand-red border border-brand-red/20 rounded-xl text-[10px] uppercase font-mono tracking-widest font-black transition-all hover:bg-brand-red hover:text-black no-print disabled:opacity-50"
               >
                 {isLoggingIn ? <RefreshCcw size={14} className="animate-spin" /> : <LogIn size={14} />}
                 {isLoggingIn ? "Auth..." : "Sign In"}
@@ -1371,7 +1401,7 @@ function AppBody() {
           <div className="flex items-center bg-white/5 p-1 rounded-xl border border-white/5 no-print">
             <button 
               onClick={() => setShowFavoritesOnly(!showFavoritesOnly)}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-all ${showFavoritesOnly ? "bg-brand-gold text-black shadow-xl" : "text-white/20 hover:text-white/40"}`}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-all ${showFavoritesOnly ? "bg-brand-red text-white shadow-xl" : "text-white/20 hover:text-white/40"}`}
               title="Show Favorites Only"
             >
               <Sparkles size={14} fill={showFavoritesOnly ? "currentColor" : "none"} />
@@ -1404,14 +1434,14 @@ function AppBody() {
           </div>
           <button 
             onClick={printStoryboard}
-            className="flex items-center gap-2 px-3 py-1.5 bg-brand-gold text-black rounded-lg text-[10px] uppercase font-mono tracking-widest font-black transition-all hover:scale-105 active:scale-95"
+            className="flex items-center gap-2 px-3 py-1.5 bg-brand-red text-white rounded-lg text-[10px] uppercase font-mono tracking-widest font-black transition-all hover:scale-105 active:scale-95"
             title="Generate Production PDF"
           >
             <Download size={14} /> Production PDF
           </button>
           <button 
             onClick={exportDirectorsPack}
-            className="flex items-center gap-2 px-3 py-1.5 bg-brand-cyan text-black rounded-lg text-[10px] uppercase font-mono tracking-widest font-black transition-all hover:scale-105 active:scale-95 no-print"
+            className="flex items-center gap-2 px-3 py-1.5 bg-brand-red text-white rounded-lg text-[10px] uppercase font-mono tracking-widest font-black transition-all hover:scale-105 active:scale-95 no-print"
             title="Export Animator Pack"
           >
             <FileText size={14} /> Director's Pack
@@ -1624,7 +1654,7 @@ function AppBody() {
         <section className="no-print">
           <div className="bg-brand-gold/[0.03] border border-brand-gold/10 rounded-2xl p-6 flex flex-col md:flex-row items-center gap-6 group hover:border-brand-gold/20 transition-all">
             <div className="flex items-center gap-4 min-w-fit">
-              <div className="h-10 w-10 flex items-center justify-center bg-brand-gold/10 text-brand-gold rounded-full group-hover:scale-110 transition-transform">
+              <div className="h-10 w-10 flex items-center justify-center bg-brand-red/10 text-brand-red rounded-full group-hover:scale-110 transition-transform">
                 <Zap size={20} />
               </div>
               <div>
@@ -1786,7 +1816,7 @@ function AppBody() {
                           <div className="flex flex-wrap gap-2 pt-2 border-t border-white/5 no-print">
                             <button 
                               onClick={() => updateShot(shot.id, { isCharacterShot: !shot.isCharacterShot })}
-                              className={`flex items-center gap-2 px-2 py-1 rounded text-[9px] font-mono uppercase tracking-widest transition-all ${shot.isCharacterShot ? 'bg-brand-gold text-black font-black' : 'bg-white/5 text-white/40 hover:text-white/60'}`}
+                              className={`flex items-center gap-2 px-2 py-1 rounded text-[9px] font-mono uppercase tracking-widest transition-all ${shot.isCharacterShot ? 'bg-brand-red text-white font-black' : 'bg-white/5 text-white/40 hover:text-white/60'}`}
                             >
                               <CheckCircle2 size={10} />
                               Same Character
