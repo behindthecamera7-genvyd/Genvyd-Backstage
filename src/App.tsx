@@ -663,13 +663,19 @@ function AppBody() {
     setShotsSync(newShots);
   };
 
-  const handleGlobalRefinement = async () => {
-    if (!globalRefinement || !currentProject || !brandReport) return;
+  const handleGlobalRefinement = async (directiveOverride?: string) => {
+    const directive = directiveOverride || globalRefinement;
+    if (!directive || !currentProject || !brandReport) return;
     setLoading(true);
     setLoadingMessage("Synthesizing creative direction...");
     try {
-      const refinements = await refineAllPrompts(shots, brandReport, globalRefinement);
+      const refinements = await refineAllPrompts(shots, brandReport, directive);
       
+      if (!refinements || refinements.length === 0) {
+        console.warn("No refinements returned from AI.");
+        return;
+      }
+
       setLoadingMessage(`Applying new style pass to ${shots.length} shots...`);
       const updatedShots = shots.map(shot => {
         const refinement = refinements.find(r => r.shotId === shot.id);
@@ -1632,8 +1638,9 @@ function AppBody() {
                 </div>
                 <button 
                   onClick={() => {
-                    setGlobalRefinement("Sync sequence to the updated character description and brand technical specs.");
-                    handleGlobalRefinement();
+                    const directive = "Sync sequence to the updated character description and brand technical specs.";
+                    setGlobalRefinement(directive);
+                    handleGlobalRefinement(directive);
                   }}
                   className="text-[9px] font-mono text-brand-gold bg-brand-gold/10 border border-brand-gold/20 px-3 py-1 rounded-full hover:bg-brand-gold hover:text-black transition-all uppercase tracking-widest active:scale-95"
                 >
@@ -1658,8 +1665,8 @@ function AppBody() {
                 <Zap size={20} />
               </div>
               <div>
-                <h3 className="text-[10px] uppercase tracking-[0.3em] font-mono font-black text-brand-gold">Global Refinement</h3>
-                <p className="text-[10px] text-gray-500 font-mono mt-0.5 uppercase tracking-widest leading-none">Apply style pass to all shots</p>
+                <h3 className="text-[10px] uppercase tracking-[0.3em] font-mono font-black text-white">Global Refinement</h3>
+                <p className="text-[10px] text-white/40 font-mono mt-0.5 uppercase tracking-widest leading-none">Apply style pass to all shots</p>
               </div>
             </div>
             
@@ -1667,7 +1674,7 @@ function AppBody() {
               <input 
                 type="text"
                 placeholder="e.g., 'Make it more cinematic and bright, add anamorphic flares, remove grunge' or 'Add a blue neon cyberpunk tint'"
-                className="w-full bg-black/40 border border-white/5 rounded-xl px-4 py-3 text-sm font-mono focus:outline-none focus:border-brand-gold/40 transition-all text-white/70 placeholder:text-white/10"
+                className="w-full bg-black/40 border border-white/5 rounded-xl px-4 py-3 text-sm font-mono focus:outline-none focus:border-brand-gold/40 transition-all text-white/70 placeholder:text-white/30"
                 value={globalRefinement}
                 onChange={(e) => setGlobalRefinement(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleGlobalRefinement()}
@@ -1793,7 +1800,7 @@ function AppBody() {
                                 )}
                               </div>
                             ) : (
-                              <label className="cursor-pointer flex flex-col items-center gap-3 text-gray-500 hover:text-brand-gold transition-all">
+                              <label className="cursor-pointer flex flex-col items-center gap-3 text-white/30 hover:text-white/80 transition-all">
                                 <Upload size={24} className="opacity-30" />
                                 <span className="text-[10px] uppercase font-mono tracking-widest font-bold">Upload Render</span>
                                 <input type="file" className="hidden" accept="image/*" onChange={(e) => {
