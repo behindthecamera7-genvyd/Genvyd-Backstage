@@ -138,6 +138,8 @@ function AppBody() {
   const [user, setUser] = useState<User | null>(null);
   const [isCloudSyncing, setIsCloudSyncing] = useState(false);
   const [syncEnabled, setSyncEnabled] = useState(true);
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
   const [cloudLimitWarning, setCloudLimitWarning] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -202,10 +204,26 @@ function AppBody() {
   }, []);
 
   const login = async () => {
+    setLoginError(null);
+    setIsLoggingIn(true);
     try {
+      googleProvider.setCustomParameters({ prompt: 'select_account' });
       await signInWithPopup(auth, googleProvider);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Login failed", error);
+      let message = "Login failed. Please try again.";
+      if (error.code === 'auth/popup-blocked') {
+        message = "Popup was blocked by your browser. Please allow popups for this site.";
+      } else if (error.code === 'auth/unauthorized-domain') {
+        message = "This domain is not authorized in Firebase Console. Please add behindthecamera7-genvyd.github.io to authorized domains.";
+      } else if (error.code === 'auth/popup-closed-by-user') {
+        message = "Login window was closed before completion.";
+      } else if (error.message) {
+        message = error.message;
+      }
+      setLoginError(message);
+    } finally {
+      setIsLoggingIn(false);
     }
   };
 
@@ -979,12 +997,21 @@ function AppBody() {
                   </button>
                 </div>
               ) : (
-                <button 
-                  onClick={login}
-                  className="flex items-center gap-2 px-6 py-3 bg-brand-gold/10 text-brand-gold border border-brand-gold/20 rounded-xl text-xs uppercase font-mono tracking-widest font-black transition-all hover:bg-brand-gold hover:text-black"
-                >
-                  <LogIn size={18} /> Sign In
-                </button>
+                <div className="flex flex-col items-end gap-2">
+                  <button 
+                    onClick={login}
+                    disabled={isLoggingIn}
+                    className="flex items-center gap-2 px-6 py-3 bg-brand-gold/10 text-brand-gold border border-brand-gold/20 rounded-xl text-xs uppercase font-mono tracking-widest font-black transition-all hover:bg-brand-gold hover:text-black disabled:opacity-50"
+                  >
+                    {isLoggingIn ? <RefreshCcw size={18} className="animate-spin" /> : <LogIn size={18} />}
+                    {isLoggingIn ? "Signing In..." : "Sign In"}
+                  </button>
+                  {loginError && (
+                    <span className="text-[9px] text-red-500 font-mono uppercase tracking-tighter">
+                      Error: {loginError}
+                    </span>
+                  )}
+                </div>
               )}
             </div>
           </div>
@@ -1163,12 +1190,21 @@ function AppBody() {
               )}
             </div>
           ) : (
-            <button 
-              onClick={login}
-              className="flex items-center gap-2 px-6 py-3 bg-brand-gold/10 text-brand-gold border border-brand-gold/20 rounded-xl text-xs uppercase font-mono tracking-widest font-black transition-all hover:bg-brand-gold hover:text-black"
-            >
-              <LogIn size={18} /> Sign In
-            </button>
+            <div className="flex flex-col items-center gap-4 w-full">
+              <button 
+                onClick={login}
+                disabled={isLoggingIn}
+                className="flex items-center gap-2 px-6 py-3 bg-brand-gold/10 text-brand-gold border border-brand-gold/20 rounded-xl text-xs uppercase font-mono tracking-widest font-black transition-all hover:bg-brand-gold hover:text-black disabled:opacity-50"
+              >
+                {isLoggingIn ? <RefreshCcw size={18} className="animate-spin" /> : <LogIn size={18} />}
+                {isLoggingIn ? "Signing In..." : "Sign In"}
+              </button>
+              {loginError && (
+                <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-500 text-[10px] font-mono tracking-widest uppercase">
+                  {loginError}
+                </div>
+              )}
+            </div>
           )}
         </div>
 
@@ -1315,12 +1351,21 @@ function AppBody() {
               </button>
             </div>
           ) : (
-            <button 
-              onClick={login}
-              className="flex items-center gap-2 px-4 py-2 bg-brand-gold/10 text-brand-gold border border-brand-gold/20 rounded-xl text-[10px] uppercase font-mono tracking-widest font-black transition-all hover:bg-brand-gold hover:text-black no-print"
-            >
-              <LogIn size={14} /> Sign In
-            </button>
+            <div className="flex flex-col items-end gap-1">
+              <button 
+                onClick={login}
+                disabled={isLoggingIn}
+                className="flex items-center gap-2 px-4 py-2 bg-brand-gold/10 text-brand-gold border border-brand-gold/20 rounded-xl text-[10px] uppercase font-mono tracking-widest font-black transition-all hover:bg-brand-gold hover:text-black no-print disabled:opacity-50"
+              >
+                {isLoggingIn ? <RefreshCcw size={14} className="animate-spin" /> : <LogIn size={14} />}
+                {isLoggingIn ? "Auth..." : "Sign In"}
+              </button>
+              {loginError && (
+                <span className="text-[8px] text-red-500 font-mono uppercase no-print">
+                  {loginError}
+                </span>
+              )}
+            </div>
           )}
 
           <div className="flex items-center bg-white/5 p-1 rounded-xl border border-white/5 no-print">
