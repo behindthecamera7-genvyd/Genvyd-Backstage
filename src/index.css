@@ -6,9 +6,10 @@
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
   --font-display: "Space Grotesk", sans-serif;
   
-  --color-brand-gold: #FF3B3B;
+  --color-brand-gold: #FFFFFF;
   --color-brand-ink: #000000;
-  --color-brand-cyan: #FF3B3B;
+  --color-brand-cyan: #FFFFFF;
+  --color-brand-red: #FF3B3B;
 }
 
 @layer base {
