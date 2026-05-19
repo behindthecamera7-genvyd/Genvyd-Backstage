@@ -1,8 +1,15 @@
+export interface Character {
+  id: string;
+  name: string;
+  description: string;
+}
+
 export interface BrandReport {
   mission: string;
   motifs: string[];
   targetSoftware: string;
   characterDescription?: string;
+  characters?: Character[];
   cinematicProfile: {
     lighting: string;
     palette: string;
@@ -36,6 +43,7 @@ export interface Shot {
   context: "Legacy" | "Wheelio" | "Transition";
   isCharacterShot?: boolean;
   requiresFaceSwap?: boolean;
+  characterId?: string;
 }
 
 export interface Project {

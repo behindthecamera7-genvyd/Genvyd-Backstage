@@ -16,6 +16,7 @@ import {
   Terminal,
   Layers,
   CheckCircle2,
+  Users,
   MessageSquare,
   RefreshCcw,
   Lightbulb,
@@ -36,7 +37,7 @@ import {
   Cloud,
   CloudOff
 } from "lucide-react";
-import { generateBrandReport, generateShotSequence, regenerateShotPrompt, refineAllPrompts } from "./geminiService";
+import { generateBrandReport, generateShotSequence, regenerateShotPrompt, refineAllPrompts, generateStyleSpec } from "./geminiService";
 import { BrandReport, Shot, Project } from "./types";
 import JSZip from "jszip";
 import * as XLSX from "xlsx";
@@ -152,6 +153,9 @@ function AppBody() {
   const [websiteUrl, setWebsiteUrl] = useState("");
   const [visualTheme, setVisualTheme] = useState("");
   const [globalRefinement, setGlobalRefinement] = useState("");
+  const [quickStyleDirective, setQuickStyleDirective] = useState("");
+  const [showApplyPassBanner, setShowApplyPassBanner] = useState(false);
+  const [generatedStyleSummary, setGeneratedStyleSummary] = useState("");
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [view, setView] = useState<"projects" | "editor" | "gallery">("projects");
   const [editorMode, setEditorMode] = useState<"list" | "grid">("list");
@@ -330,6 +334,7 @@ function AppBody() {
             motifs: Array.isArray(p.brandReport.motifs) ? p.brandReport.motifs : [],
             targetSoftware: p.brandReport.targetSoftware || "Midjourney v6",
             characterDescription: p.brandReport.characterDescription || "",
+            characters: Array.isArray(p.brandReport.characters) ? p.brandReport.characters : [],
             cinematicProfile: {
               lighting: p.brandReport.cinematicProfile?.lighting || "",
               palette: p.brandReport.cinematicProfile?.palette || "",
@@ -484,6 +489,7 @@ function AppBody() {
         motifs: Array.isArray(rawReport.motifs) ? rawReport.motifs : [],
         targetSoftware: rawReport.targetSoftware || "Midjourney v6",
         characterDescription: rawReport.characterDescription || "",
+        characters: (rawReport as any).characters || [],
         cinematicProfile: {
           lighting: rawReport.cinematicProfile?.lighting || "",
           palette: rawReport.cinematicProfile?.palette || "",
@@ -664,7 +670,7 @@ function AppBody() {
   };
 
   const handleGlobalRefinement = async (directiveOverride?: string) => {
-    const directive = directiveOverride || globalRefinement;
+    const directive = typeof directiveOverride === 'string' ? directiveOverride : globalRefinement;
     if (!directive || !currentProject || !brandReport) return;
     setLoading(true);
     setLoadingMessage("Synthesizing creative direction...");
@@ -673,13 +679,17 @@ function AppBody() {
       
       if (!refinements || refinements.length === 0) {
         console.warn("No refinements returned from AI.");
+        setLoadingMessage("No refinements generated...");
+        setTimeout(() => setLoading(false), 1000);
         return;
       }
 
+      let updateCount = 0;
       setLoadingMessage(`Applying new style pass to ${shots.length} shots...`);
       const updatedShots = shots.map(shot => {
-        const refinement = refinements.find(r => r.shotId === shot.id);
+        const refinement = refinements.find(r => String(r.shotId) === String(shot.id));
         if (refinement) {
+          updateCount++;
           const newVersionId = Math.random().toString(36).substr(2, 9);
           const newVersion = {
             id: newVersionId,
@@ -697,10 +707,48 @@ function AppBody() {
         return shot;
       });
 
+      if (updateCount === 0) {
+        console.warn("Match failed for all refinements. Check IDs.");
+      }
+
       updateCurrentProject({ shots: updatedShots });
       setGlobalRefinement("");
     } catch (error) {
       console.error("Global refinement failed:", error);
+    } finally {
+      setLoading(false);
+      setLoadingMessage("");
+    }
+  };
+
+  const handleQuickStyleGenerate = async () => {
+    if (!quickStyleDirective || !currentProject || !brandReport) return;
+    setLoading(true);
+    setLoadingMessage("Synthesizing vibe and aesthetic specifications...");
+    setShowApplyPassBanner(false);
+    try {
+      const spec = await generateStyleSpec(quickStyleDirective, currentProject.script);
+      
+      const updatedReport: BrandReport = {
+        ...brandReport,
+        targetSoftware: spec.targetSoftware || brandReport.targetSoftware || "Midjourney v6",
+        motifs: spec.motifs && spec.motifs.length > 0 ? spec.motifs : brandReport.motifs,
+        cinematicProfile: {
+          lighting: spec.cinematicProfile?.lighting || brandReport.cinematicProfile?.lighting || "",
+          palette: spec.cinematicProfile?.palette || brandReport.cinematicProfile?.palette || "",
+          lens: spec.cinematicProfile?.lens || brandReport.cinematicProfile?.lens || ""
+        }
+      };
+      
+      if (spec.characterDescription && !brandReport.characterDescription) {
+        updatedReport.characterDescription = spec.characterDescription;
+      }
+      
+      updateCurrentProject({ brandReport: updatedReport });
+      setGeneratedStyleSummary(`Lighting: ${spec.cinematicProfile?.lighting || ""} | Atmosphere: ${spec.cinematicProfile?.palette || ""} | Elements: ${(spec.motifs || []).join(", ")}`);
+      setShowApplyPassBanner(true);
+    } catch (error) {
+      console.error("Failed to generate style specs:", error);
     } finally {
       setLoading(false);
       setLoadingMessage("");
@@ -1151,7 +1199,7 @@ function AppBody() {
                     {project.name}
                   </h3>
                 )}
-                <div className="flex items-center gap-2 text-xs text-gray-500 font-mono uppercase tracking-widest">
+                <div className="flex items-center gap-2 text-xs text-white/40 font-mono uppercase tracking-widest">
                   <Calendar size={12} />
                   {new Date(project.updatedAt).toLocaleDateString()}
                 </div>
@@ -1167,7 +1215,7 @@ function AppBody() {
             {projects.length === 0 && !isInitializing && (
               <div className="col-span-full py-20 text-center border-2 border-dashed border-white/5 rounded-3xl">
                 <FolderOpen className="mx-auto mb-4 text-white/5" size={48} />
-                <p className="text-gray-500 font-mono text-sm uppercase tracking-widest">No production archives found</p>
+                <p className="text-white/40 font-mono text-sm uppercase tracking-widest">No production archives found</p>
                 <button onClick={createProject} className="mt-4 text-brand-gold hover:underline font-mono text-xs uppercase tracking-widest">Start First Production</button>
               </div>
             )}
@@ -1190,7 +1238,7 @@ function AppBody() {
         <div className="absolute top-8 left-8 flex items-center gap-6 no-print">
           <button 
             onClick={() => setView("projects")}
-            className="flex items-center gap-2 text-gray-500 hover:text-white transition-colors uppercase font-mono text-[10px] tracking-widest"
+            className="flex items-center gap-2 text-white/40 font-mono text-[10px] tracking-widest"
           >
             <ChevronLeft size={16} /> Back to Library
           </button>
@@ -1279,18 +1327,39 @@ function AppBody() {
                 onChange={(e) => setWebsiteUrl(e.target.value)}
               />
             </div>
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 mb-1 px-1">
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 px-1">
                 <Camera size={14} className="text-brand-gold" />
-                <label className="text-[10px] uppercase tracking-widest text-gray-500 font-mono">Visual Theme (Optional)</label>
+                <label className="text-[10px] uppercase tracking-widest text-white/40 font-mono">Vibe / Aesthetic Style (Optional)</label>
               </div>
               <textarea 
-                placeholder="Enter Visual theme here"
+                placeholder="Enter a custom style (e.g. corporate style and bright) or select a preset chip below..."
                 rows={1}
-                className="w-full bg-black/60 border border-white/5 rounded-xl p-4 text-sm font-mono focus:outline-none focus:border-brand-gold/40 transition-all shadow-inner resize-none min-h-[56px]"
+                className="w-full bg-black/60 border border-white/5 rounded-xl p-4 text-sm font-mono focus:outline-none focus:border-brand-gold/40 transition-all shadow-inner resize-none min-h-[56px] text-white/80"
                 value={visualTheme}
                 onChange={(e) => setVisualTheme(e.target.value)}
               />
+              <div className="flex flex-wrap gap-2 pt-1">
+                {[
+                  { label: "🏢 Corporate & Bright", value: "clean corporate style, bright natural light, warm professional glass/wood aesthetics" },
+                  { label: "🌆 Moody Cyberpunk", value: "gritty cyberpunk, dark neon, rain-slicked asphalt, anamorphic blue lens flares" },
+                  { label: "☀️ Warm Film", value: "nostalgic warm golden-hour film grain, organic 35mm primes, sun-drenched halos" },
+                  { label: "🎥 Gritty Noir", value: "high-contrast cinematic chiaroscuro, harsh dramatic key lighting, monochrome shadows" }
+                ].map(preset => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() => setVisualTheme(preset.value)}
+                    className={`text-[9px] font-mono px-3 py-1.5 rounded-full border transition-all active:scale-95 ${
+                      visualTheme === preset.value
+                        ? 'bg-brand-gold border-brand-gold text-black font-black'
+                        : 'bg-white/5 border-white/5 text-white/60 hover:border-white/10 hover:bg-white/10'
+                    }`}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
           <div className="grid grid-cols-1 gap-6">
@@ -1534,33 +1603,122 @@ function AppBody() {
             )}
           </section>
         ) : (
-          <>
-            {/* Brand Intel Dashboard */}
-        <section className="grid grid-cols-1 md:grid-cols-4 gap-6">
-          <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} className="glass-panel p-8 rounded-2xl border-l-[3px] border-brand-gold space-y-5">
-            <div className="flex items-center justify-between group">
-              <div className="flex items-center gap-3 text-brand-gold">
-                <Info size={16} />
-                <h3 className="text-[10px] uppercase tracking-[0.3em] font-mono font-black">Strategic Anchor</h3>
+          <div className="space-y-8">
+            {/* Quick Style Assistant Block (Full width) */}
+            <motion.div 
+              initial={{ opacity: 0, y: -10 }} 
+              animate={{ opacity: 1, y: 0 }} 
+              className="glass-panel p-6 rounded-2xl border-l-[3px] border-brand-cyan relative overflow-hidden space-y-4 no-print shadow-[0_0_50px_rgba(34,211,238,0.03)]"
+            >
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="flex items-center gap-3 text-brand-cyan">
+                  <Sparkles size={18} className="animate-pulse" />
+                  <div>
+                    <h3 className="text-xs uppercase tracking-[0.3em] font-mono font-black text-white">⭐ Quick Style Assistant</h3>
+                    <p className="text-[10px] text-white/40 font-mono uppercase tracking-widest mt-0.5">Auto-generate cinematic specifications from simple directives</p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    "🏢 Corporate & Bright",
+                    "🌆 Retro Warm Movie",
+                    "⚡ Dark Cyberpunk",
+                    "🎥 Handheld Documentary"
+                  ].map(suggestion => (
+                    <button
+                      key={suggestion}
+                      onClick={() => setQuickStyleDirective(suggestion.replace(/^[^\w]*\s*/, ''))}
+                      className="text-[9px] font-mono bg-white/5 border border-white/5 hover:border-white/10 text-white/60 px-2.5 py-1 rounded-full transition-all hover:bg-white/10"
+                    >
+                      {suggestion}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <Edit3 size={12} className="text-white/20" />
-            </div>
-            <textarea 
-              className="w-full bg-transparent text-sm leading-relaxed text-gray-200 font-medium focus:outline-none focus:ring-1 focus:ring-brand-gold/20 rounded p-1 resize-none h-24"
-              value={brandReport?.narrativeAnchor || ""}
-              onChange={(e) => setBrandReportSync({ ...brandReport!, narrativeAnchor: e.target.value })}
-            />
-          </motion.div>
+
+              <div className="flex flex-col sm:flex-row gap-3">
+                <input
+                  type="text"
+                  placeholder="e.g. corporate style and bright, nostalgic 70s warm Polaroid film, cinematic dark fantasy..."
+                  className="flex-1 bg-black/40 border border-white/5 focus:border-brand-cyan/40 rounded-xl px-4 py-3.5 text-sm font-mono text-white/80 focus:outline-none"
+                  value={quickStyleDirective}
+                  onChange={(e) => setQuickStyleDirective(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleQuickStyleGenerate()}
+                />
+                <button
+                  onClick={handleQuickStyleGenerate}
+                  disabled={loading || !quickStyleDirective}
+                  className="bg-brand-cyan text-black font-black text-[10px] uppercase tracking-widest px-6 py-3.5 sm:py-0 rounded-xl hover:bg-white hover:text-black transition-all active:scale-95 disabled:opacity-30 whitespace-nowrap"
+                >
+                  {loading ? "Generating Specifications..." : "Auto-Fill Spec"}
+                </button>
+              </div>
+
+              {showApplyPassBanner && (
+                <motion.div 
+                  initial={{ opacity: 0, height: 0 }} 
+                  animate={{ opacity: 1, height: "auto" }}
+                  className="bg-brand-cyan/5 border border-brand-cyan/20 rounded-xl p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4"
+                >
+                  <div className="space-y-1">
+                    <span className="text-[9px] font-mono text-brand-cyan font-black uppercase tracking-widest block">Aesthetic specs suggested successfully</span>
+                    <p className="text-[10.5px] text-white/80 font-mono leading-relaxed">{generatedStyleSummary}</p>
+                    <span className="text-[8.5px] font-mono text-white/30 uppercase tracking-widest block">
+                      The optics, lighting strategy, atmosphere, and recurring visual elements below have been updated.
+                    </span>
+                  </div>
+                  <div className="flex gap-2.5 flex-wrap sm:flex-nowrap">
+                    <button
+                      onClick={() => {
+                        setGlobalRefinement(`Refine storyboard styling and details to match updated aesthetic spec: ${generatedStyleSummary}`);
+                        setShowApplyPassBanner(false);
+                        // Trigger immediate refinement
+                        setTimeout(() => handleGlobalRefinement(), 100);
+                      }}
+                      className="bg-brand-cyan text-black font-black text-[9.5px] uppercase tracking-widest px-4 py-3 rounded-lg hover:bg-white hover:text-black transition-all whitespace-nowrap active:scale-95"
+                    >
+                      Apply to All Storyboard Shots (Rerun prompts)
+                    </button>
+                    <button
+                      onClick={() => setShowApplyPassBanner(false)}
+                      className="bg-white/5 text-white/60 border border-white/10 text-[9.5px] font-mono uppercase tracking-widest px-4 py-3 rounded-lg hover:bg-white/10 hover:text-white transition-all"
+                    >
+                      Keep Specs Only
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+            </motion.div>
+
+            {/* Brand Intel Dashboard */}
+            <section className="grid grid-cols-1 md:grid-cols-4 gap-6">
+              <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} className="glass-panel p-8 rounded-2xl border-l-[3px] border-brand-gold space-y-5">
+                <div className="flex items-center justify-between group">
+                  <div className="flex items-center gap-3 text-brand-gold">
+                    <Info size={16} />
+                    <h3 className="text-[10px] uppercase tracking-[0.3em] font-mono font-black">Strategic Anchor</h3>
+                  </div>
+                  <Edit3 size={12} className="text-white/20" />
+                </div>
+                <textarea 
+                  className="w-full bg-transparent text-sm leading-relaxed text-gray-200 font-medium focus:outline-none focus:ring-1 focus:ring-brand-gold/20 rounded p-1 resize-none h-24"
+                  value={brandReport?.narrativeAnchor || ""}
+                  onChange={(e) => setBrandReportSync({ ...brandReport!, narrativeAnchor: e.target.value })}
+                />
+                <p className="text-[9px] font-mono text-white/30 uppercase tracking-widest leading-loose pt-2 border-t border-white/[0.03]">
+                  🧭 The non-negotiable core creative thesis of the project. It aligns all storyboard iterations and prevents style drift.
+                </p>
+              </motion.div>
           
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="glass-panel p-8 rounded-2xl border-l-[3px] border-brand-cyan space-y-5">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3 text-brand-cyan">
                 <Sparkles size={16} />
-                <h3 className="text-[10px] uppercase tracking-[0.3em] font-mono font-black">Visual Motifs</h3>
+                <h3 className="text-[10px] uppercase tracking-[0.3em] font-mono font-black">Recurring Visual Elements</h3>
               </div>
               <button 
                 onClick={() => {
-                  setGlobalRefinement("Sync all shots to use these specific visual motifs and character descriptions.");
+                  setGlobalRefinement("Sync all shots to use these specific visual elements and character descriptions.");
                   handleGlobalRefinement();
                 }}
                 className="text-[9px] font-mono text-brand-cyan bg-brand-cyan/10 border border-brand-cyan/20 px-3 py-1 rounded-full hover:bg-brand-cyan hover:text-black transition-all uppercase tracking-widest active:scale-95"
@@ -1572,7 +1730,7 @@ function AppBody() {
               className="w-full bg-transparent text-[10px] font-mono uppercase tracking-wider text-brand-cyan/90 focus:outline-none focus:ring-1 focus:ring-brand-cyan/20 rounded p-1 resize-none h-24"
               value={(brandReport?.motifs || []).join(", ")}
               onChange={(e) => setBrandReportSync({ ...brandReport!, motifs: e.target.value.split(",").map(m => m.trim()).filter(m => m) })}
-              placeholder="Separate motifs with commas..."
+              placeholder="Separate elements with commas (e.g. volumetric smoke, blue retro neon flares, anamorphic glare)..."
             />
           </motion.div>
 
@@ -1634,7 +1792,7 @@ function AppBody() {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                    <Terminal size={12} className="text-brand-gold" />
-                   <span className="text-[9px] uppercase font-mono text-gray-500 font-bold">Consistent Character Description (Syncs across toggled shots)</span>
+                   <span className="text-[9px] uppercase font-mono text-gray-500 font-bold">Primary / Fallback Character Description</span>
                 </div>
                 <button 
                   onClick={() => {
@@ -1648,11 +1806,92 @@ function AppBody() {
                 </button>
               </div>
               <textarea 
-                className="w-full bg-black/40 p-3 rounded-xl text-[10px] font-mono text-brand-gold focus:outline-none border border-white/5 focus:border-brand-gold/30 h-16"
+                className="w-full bg-black/40 p-3 rounded-xl text-[10px] font-mono text-brand-gold focus:outline-none border border-white/5 focus:border-brand-gold/30 h-16 resize-none"
                 placeholder="e.g. 'A stoic man in a weathered leather jacket with silver rimmed glasses...'"
                 value={brandReport.characterDescription || ""}
                 onChange={(e) => setBrandReportSync({ ...brandReport, characterDescription: e.target.value })}
               />
+            </div>
+
+            {/* Multi-Character Cast Management */}
+            <div className="pt-4 border-t border-white/5 space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-brand-gold">
+                  <Users size={14} />
+                  <span className="text-[10px] uppercase font-mono font-black tracking-widest text-white/80">
+                    Character Cast Profiles
+                  </span>
+                </div>
+                <button
+                  onClick={() => {
+                    const currentCharacters = brandReport.characters || [];
+                    const newChar = {
+                      id: Math.random().toString(36).substr(2, 9),
+                      name: `Character ${currentCharacters.length + 1}`,
+                      description: ""
+                    };
+                    setBrandReportSync({
+                      ...brandReport,
+                      characters: [...currentCharacters, newChar]
+                    });
+                  }}
+                  className="text-[9px] font-mono text-brand-cyan bg-brand-cyan/10 border border-brand-cyan/20 px-3.5 py-1.5 rounded-full hover:bg-brand-cyan hover:text-black transition-all uppercase tracking-widest flex items-center gap-1 active:scale-95"
+                >
+                  <Plus size={10} /> Add Character
+                </button>
+              </div>
+
+              {/* Characters list */}
+              {(!brandReport.characters || brandReport.characters.length === 0) ? (
+                <p className="text-[9px] text-white/30 font-mono uppercase italic leading-loose">
+                  No additional cast members defined. Select "Add Character" to designate specific profiles for dynamic shots.
+                </p>
+              ) : (
+                <div className="grid grid-cols-1 gap-3 max-h-[220px] overflow-y-auto pr-1">
+                  {brandReport.characters.map((char, index) => (
+                    <div key={char.id} className="relative bg-black/40 border border-white/5 rounded-xl p-3.5 flex flex-col gap-2 group hover:border-brand-cyan/20 transition-all">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 flex-1">
+                          <span className="text-[9px] font-mono text-white/30">#{index + 1}</span>
+                          <input
+                            type="text"
+                            className="bg-transparent text-[10.5px] font-mono font-bold text-brand-cyan focus:outline-none border-b border-transparent focus:border-brand-cyan/30 pb-0.5 w-full uppercase tracking-wider"
+                            placeholder="Character Name (e.g., Detective Miller)"
+                            value={char.name}
+                            onChange={(e) => {
+                              const updated = (brandReport.characters || []).map(c => 
+                                c.id === char.id ? { ...c, name: e.target.value } : c
+                              );
+                              setBrandReportSync({ ...brandReport, characters: updated });
+                            }}
+                          />
+                        </div>
+                        <button
+                          onClick={() => {
+                            const updated = (brandReport.characters || []).filter(c => c.id !== char.id);
+                            setBrandReportSync({ ...brandReport, characters: updated });
+                          }}
+                          className="text-white/20 hover:text-red-500 hover:bg-red-500/10 p-1 rounded transition-colors"
+                          title="Remove character"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                      <textarea
+                        className="w-full bg-black/30 p-2 rounded-lg text-[10px] font-mono text-white/70 focus:outline-none border border-white/5 focus:border-brand-cyan/20 h-14 resize-none leading-relaxed"
+                        placeholder="Provide physical descriptors, outfit specs, age, and style keys for generator continuity..."
+                        value={char.description}
+                        onChange={(e) => {
+                          const updated = (brandReport.characters || []).map(c => 
+                            c.id === char.id ? { ...c, description: e.target.value } : c
+                          );
+                          setBrandReportSync({ ...brandReport, characters: updated });
+                        }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </motion.div>
         </section>
@@ -1685,9 +1924,9 @@ function AppBody() {
             </div>
 
             <button 
-              onClick={handleGlobalRefinement}
+              onClick={() => handleGlobalRefinement()}
               disabled={loading || !globalRefinement}
-              className="bg-brand-gold text-black font-black text-[10px] uppercase tracking-[0.2em] px-8 py-3 rounded-xl hover:bg-white transition-all active:scale-95 disabled:opacity-30 disabled:hover:bg-brand-gold"
+              className="bg-brand-red text-white font-black text-[10px] uppercase tracking-[0.2em] px-8 py-3 rounded-xl hover:bg-white hover:text-black transition-all active:scale-95 disabled:opacity-30 disabled:hover:bg-brand-red"
             >
               {loading ? "Synthesizing..." : "Refine All"}
             </button>
@@ -1820,26 +2059,53 @@ function AppBody() {
                             />
                           </div>
 
-                          <div className="flex flex-wrap gap-2 pt-2 border-t border-white/5 no-print">
-                            <button 
-                              onClick={() => updateShot(shot.id, { isCharacterShot: !shot.isCharacterShot })}
-                              className={`flex items-center gap-2 px-2 py-1 rounded text-[9px] font-mono uppercase tracking-widest transition-all ${shot.isCharacterShot ? 'bg-brand-red text-white font-black' : 'bg-white/5 text-white/40 hover:text-white/60'}`}
-                            >
-                              <CheckCircle2 size={10} />
-                              Same Character
-                            </button>
-                            <button 
-                              onClick={() => updateShot(shot.id, { requiresFaceSwap: !shot.requiresFaceSwap })}
-                              className={`flex items-center gap-2 px-2 py-1 rounded text-[9px] font-mono uppercase tracking-widest transition-all ${shot.requiresFaceSwap ? 'bg-red-500 text-white font-black' : 'bg-white/5 text-white/40 hover:text-white/60'}`}
-                            >
-                              <RefreshCcw size={10} />
-                              Face Swap Req.
-                            </button>
+                          <div className="flex flex-col gap-2 pt-2 border-t border-white/5 no-print">
+                            <div className="flex flex-wrap gap-2">
+                              <button 
+                                onClick={() => {
+                                  const newIsCharVal = !shot.isCharacterShot;
+                                  const firstCharId = brandReport?.characters?.[0]?.id || "";
+                                  updateShot(shot.id, { 
+                                    isCharacterShot: newIsCharVal,
+                                    characterId: newIsCharVal ? (shot.characterId || firstCharId) : undefined
+                                  });
+                                }}
+                                className={`flex items-center gap-2 px-2 py-1 rounded text-[9px] font-mono uppercase tracking-widest transition-all ${shot.isCharacterShot ? 'bg-brand-red text-white font-black' : 'bg-white/5 text-white/40 hover:text-white/60'}`}
+                              >
+                                <CheckCircle2 size={10} />
+                                Same Character
+                              </button>
+                              <button 
+                                onClick={() => updateShot(shot.id, { requiresFaceSwap: !shot.requiresFaceSwap })}
+                                className={`flex items-center gap-2 px-2 py-1 rounded text-[9px] font-mono uppercase tracking-widest transition-all ${shot.requiresFaceSwap ? 'bg-red-500 text-white font-black' : 'bg-white/5 text-white/40 hover:text-white/60'}`}
+                              >
+                                <RefreshCcw size={10} />
+                                Face Swap Req.
+                              </button>
+                            </div>
+
+                            {shot.isCharacterShot && brandReport?.characters && brandReport.characters.length > 0 && (
+                              <div className="flex items-center gap-1.5 w-full bg-black/40 border border-white/5 rounded-xl px-2.5 py-1.5">
+                                <span className="text-[8px] font-mono uppercase text-white/40 tracking-wider">Cast:</span>
+                                <select
+                                  className="bg-transparent text-[9px] font-mono text-brand-gold font-bold focus:outline-none cursor-pointer flex-1"
+                                  value={shot.characterId || ""}
+                                  onChange={(e) => updateShot(shot.id, { characterId: e.target.value })}
+                                >
+                                  <option value="" className="bg-black text-[9px] font-mono text-white/40">-- Default Character --</option>
+                                  {brandReport.characters.map(c => (
+                                    <option key={c.id} value={c.id} className="bg-black text-[9px] font-mono text-brand-gold">
+                                      {c.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            )}
                           </div>
 
                           <div className="space-y-2 mt-2">
                              <div className="flex items-center justify-between">
-                               <span className="text-[9px] uppercase font-mono tracking-widest text-gray-600 font-bold">Voiceover.File</span>
+                               <span className="text-[9px] uppercase font-mono tracking-widest text-white/40 font-bold">Voiceover.File</span>
                                {activeVersion.audioPreview && (
                                  <button 
                                    onClick={() => {
@@ -1877,7 +2143,7 @@ function AppBody() {
                               <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-2">
                                   <Camera size={14} className="text-brand-gold" />
-                                  <span className="text-[10px] uppercase font-mono tracking-widest text-gray-500 font-black">Image.Prompt</span>
+                                  <span className="text-[10px] uppercase font-mono tracking-widest text-white/40 font-black">Image.Prompt</span>
                                 </div>
                                 <div className="flex items-center gap-2">
                                   <button 
@@ -1889,7 +2155,7 @@ function AppBody() {
                                   </button>
                                   <button 
                                     onClick={() => copyToClipboard(activeVersion.imagePrompt)} 
-                                    className="text-gray-500 hover:text-brand-gold p-1 transition-all rounded"
+                                    className="text-white/40 hover:text-brand-gold p-1 transition-all rounded"
                                   >
                                     <Copy size={14} />
                                   </button>
@@ -1911,7 +2177,7 @@ function AppBody() {
                               <div className="space-y-1">
                                 <div className="flex items-center gap-2">
                                   <Lightbulb size={12} className="text-brand-gold/60" />
-                                  <span className="text-[10px] uppercase font-mono tracking-widest text-gray-500 font-bold">Prompt.Refinement</span>
+                                  <span className="text-[10px] uppercase font-mono tracking-widest text-white/40 font-bold">Prompt.Refinement</span>
                                 </div>
                                 <textarea 
                                   className="w-full bg-black/40 border border-white/5 rounded-lg p-2 text-[10px] font-mono focus:outline-none focus:border-brand-gold/40 transition-all text-white/40 placeholder:opacity-20"
@@ -1927,7 +2193,7 @@ function AppBody() {
                               <div className="space-y-1">
                                 <div className="flex items-center gap-2">
                                   <MessageSquare size={12} className="text-brand-gold/60" />
-                                  <span className="text-[10px] uppercase font-mono tracking-widest text-gray-500 font-bold">Dialogue.VO</span>
+                                  <span className="text-[10px] uppercase font-mono tracking-widest text-white/40 font-bold">Dialogue.VO</span>
                                 </div>
                                 <textarea 
                                   className="w-full bg-black/60 border border-white/5 rounded-lg p-3 text-[11px] focus:outline-none focus:border-brand-gold/40 transition-all font-sans leading-relaxed text-white/90 placeholder:italic"
@@ -1946,7 +2212,7 @@ function AppBody() {
                               <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-2">
                                   <Film size={14} className="text-brand-gold" />
-                                  <span className="text-[10px] uppercase font-mono tracking-widest text-gray-500 font-black">Motion.Params</span>
+                                  <span className="text-[10px] uppercase font-mono tracking-widest text-white/40 font-black">Motion.Params</span>
                                 </div>
                                 <button 
                                   onClick={() => copyToClipboard(activeVersion.motionPrompt)} 
@@ -1973,8 +2239,8 @@ function AppBody() {
                             <div className="space-y-4">
                               <div className="space-y-2">
                                 <div className="flex items-center gap-2">
-                                  <Plus size={12} className="text-gray-500" />
-                                  <span className="text-[9px] uppercase font-mono tracking-widest text-gray-600 font-bold">Director's Notes</span>
+                                  <Plus size={12} className="text-white/30" />
+                                  <span className="text-[9px] uppercase font-mono tracking-widest text-white/40 font-bold">Director's Notes</span>
                                 </div>
                                 <textarea 
                                   className="w-full bg-black/60 border border-white/5 rounded-lg p-3 text-[11px] focus:outline-none focus:border-brand-gold/40 transition-all font-sans leading-relaxed text-white/50 placeholder:italic"
@@ -2106,7 +2372,7 @@ function AppBody() {
             ))}
           </div>
         </section>
-      </>
+      </div>
     )}
   </main>
 

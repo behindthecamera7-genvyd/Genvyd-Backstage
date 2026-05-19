@@ -121,6 +121,15 @@ export async function generateShotSequence(script: string, brandReport: BrandRep
 
 export async function regenerateShotPrompt(shot: Shot, brandReport: BrandReport, ideas?: string): Promise<{ image: string; motion: string }> {
   const ai = getAI();
+  
+  let characterInfo = brandReport.characterDescription || "N/A";
+  if (shot.characterId && brandReport.characters) {
+    const char = brandReport.characters.find(c => c.id === shot.characterId);
+    if (char) {
+      characterInfo = `Character [Name: ${char.name}]: ${char.description}`;
+    }
+  }
+
   const prompt = `
     You are a Film Director. Regenerate the image and motion prompts for this shot based on the following context.
     
@@ -132,7 +141,7 @@ export async function regenerateShotPrompt(shot: Shot, brandReport: BrandReport,
     Target Software: ${brandReport.targetSoftware}
     Brand Mission: ${brandReport.mission}
     Cinematic Profile: ${JSON.stringify(brandReport.cinematicProfile)}
-    Global Character: ${brandReport.characterDescription || "N/A"}
+    Global Character / Specific Character Details: ${characterInfo}
     Is Same Character Shot: ${shot.isCharacterShot ? "YES" : "NO"}
     
     User Ideas/Feedback: "${ideas || "Improve the cinematic quality and technical detail"}"
@@ -140,7 +149,7 @@ export async function regenerateShotPrompt(shot: Shot, brandReport: BrandReport,
     Rules:
     - Image Prompts MUST be exhaustive and technical (Arri Alexa, T-Stop 2.0, etc.).
     - Optimization: Optimize for ${brandReport.targetSoftware}.
-    - Character Consistency: If 'Is Same Character Shot' is YES, you MUST include the Global Character description.
+    - Character Consistency: If 'Is Same Character Shot' is YES or a Specific Character is chosen, you MUST include the Character Details exactly to maintain visual continuity.
     - DO NOT use the phrase "David Clark Style".
     - Focus on high-contrast realism and cinematic spectacle.
     
@@ -164,6 +173,11 @@ export async function regenerateShotPrompt(shot: Shot, brandReport: BrandReport,
 
 export async function refineAllPrompts(shots: Shot[], report: BrandReport, styleDirective: string): Promise<{ shotId: string, imagePrompt: string, motionPrompt: string }[]> {
   const ai = getAI();
+  
+  const charactersList = report.characters && report.characters.length > 0 
+    ? report.characters.map((c, idx) => `${idx + 1}. [ID: ${c.id}] Name: ${c.name}, Description: ${c.description}`).join("\n")
+    : "Only default character: " + (report.characterDescription || "N/A");
+
   const prompt = `
     You are the Genvyd Creative Director. 
     We have a complete shot sequence, but we need to adjust the overall STYLE/VIBE while keeping the actual content/actions the same.
@@ -171,22 +185,32 @@ export async function refineAllPrompts(shots: Shot[], report: BrandReport, style
     BRAND CONTEXT:
     - Mission: ${report.mission}
     - Target Software: ${report.targetSoftware}
-    - Global Character: ${report.characterDescription || "N/A"}
     - Cinematic Profile: ${JSON.stringify(report.cinematicProfile)}
+    - Available Characters for Consistency:
+${charactersList}
     
     NEW STYLE DIRECTIVE / GLOBAL REFINEMENT: "${styleDirective}"
     
     CURRENT SHOT SEQUENCE:
     ${shots.map(s => {
       const v = s.versions.find(v => v.id === s.selectedVersionId) || s.versions[0];
-      return `Shot ${s.index} (ID: ${s.id}, Title: ${s.title}, Character Shot: ${s.isCharacterShot ? 'YES' : 'NO'}):\n- Image: ${v.imagePrompt}\n- Motion: ${v.motionPrompt}`;
+      let charInfo = "N/A";
+      if (s.characterId && report.characters) {
+        const char = report.characters.find(c => c.id === s.characterId);
+        if (char) {
+          charInfo = `Character Selected: "${char.name}" with details: "${char.description}"`;
+        }
+      } else if (s.isCharacterShot) {
+        charInfo = `Global Character: "${report.characterDescription || "N/A"}"`;
+      }
+      return `Shot ${s.index} (ID: ${s.id}, Title: ${s.title}, Character Shot: ${s.isCharacterShot ? 'YES' : 'NO'}, Featured Character: ${charInfo}):\n- Image: ${v.imagePrompt}\n- Motion: ${v.motionPrompt}`;
     }).join("\n\n")}
     
     TASK:
     Rewrite the image and motion prompts for EVERY shot to align with the NEW STYLE DIRECTIVE.
     Keep the core narrative and subjects, but change the lighting, framing, texture, and motion energy to match the directive.
     Always anchor prompts to ${report.targetSoftware} optimization.
-    Maintain Character Consistency if 'Character Shot' is YES by using the Global Character description.
+    Maintain Character Consistency if a character is featured in the shot by using their exact physical details / description.
     Maintain technical specificity (e.g., lens types, lighting techniques).
     
     RETURN A JSON ARRAY:
@@ -202,11 +226,96 @@ export async function refineAllPrompts(shots: Shot[], report: BrandReport, style
       }
     });
 
-    const parsed = JSON.parse(response.text || "[]");
+    const text = response.text || "[]";
+    let parsed: any;
+    try {
+      parsed = JSON.parse(text);
+    } catch (e) {
+      // Fallback: try to extract anything that looks like an array
+      const match = text.match(/\[[\s\S]*\]/);
+      if (match) {
+        parsed = JSON.parse(match[0]);
+      } else {
+        throw new Error("Invalid JSON refinement response");
+      }
+    }
+
+    // Handle case where AI wraps array in an object
+    if (parsed && !Array.isArray(parsed) && typeof parsed === 'object') {
+      const keys = Object.keys(parsed);
+      for (const key of keys) {
+        if (Array.isArray(parsed[key])) {
+          parsed = parsed[key];
+          break;
+        }
+      }
+    }
+
     return Array.isArray(parsed) ? parsed : [];
   } catch (error) {
     console.error("Failed to refine all prompts:", error);
     throw error;
   }
 }
+
+export async function generateStyleSpec(directive: string, scriptContext?: string): Promise<{
+  targetSoftware: string;
+  cinematicProfile: { lighting: string; palette: string; lens: string };
+  motifs: string[];
+  characterDescription?: string;
+}> {
+  const ai = getAI();
+  const prompt = `
+    You are a professional Creative Director. 
+    A user wants to establish a specific style and vibe for their storyboard/film production.
+    They gave this style cue/directive: "${directive}"
+    ${scriptContext ? `The script/narrative is: "${scriptContext}"` : ""}
+    
+    Synthesize this styling cue into rigorous film specs:
+    1. 'lighting': Detailed lighting strategy (e.g. "Warm diffused key lights, bright corporate key, soft fill with minimal shadows")
+    2. 'palette': Atmosphere, texture and color scheme (e.g. "Clean bright whites, vibrant pastel accents, high-key illumination")
+    3. 'lens': Camera gear and optics setup (e.g. "Arri Alexa, spherical 35mm primes, clean high-sharpness sensor")
+    4. 'motifs': 3 to 5 visual elements or props matching this style (e.g. ["clean glass whiteboards", "brushed aluminum laptops", "sun-drenched windows", "indoor plants"])
+    5. 'targetSoftware': Optimal generative model (e.g. "Midjourney v6" or "Runway Gen-3")
+    6. 'characterDescription': Describe a primary protagonist matching this aesthetic style if they want a consistent character (e.g. "An elegant professional in a light grey tailored blazer with a warm smiles")
+    
+    Return the response as a strict JSON object:
+    {
+      "targetSoftware": "...",
+      "cinematicProfile": {
+        "lighting": "...",
+        "palette": "...",
+        "lens": "..."
+      },
+      "motifs": ["...", "..."],
+      "characterDescription": "..."
+    }
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json"
+      }
+    });
+
+    return JSON.parse(response.text || "{}");
+  } catch (error) {
+    console.error("Failed to generate style spec:", error);
+    // Return a sensible fallback in case of errors
+    return {
+      targetSoftware: "Midjourney v6",
+      cinematicProfile: {
+        lighting: "Bright high-key natural illumination",
+        palette: "Clean white base, light corporate pastel tones",
+        lens: "Spherical prime lenses, sharp 35mm, crisp focus"
+      },
+      motifs: ["clean workspaces", "bright studio light", "subtle lens flares"],
+      characterDescription: ""
+    };
+  }
+}
+
 
