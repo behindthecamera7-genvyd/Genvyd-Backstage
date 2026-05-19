@@ -3,9 +3,24 @@ import { BrandReport, Shot } from "./types";
 
 let aiInstance: GoogleGenAI | null = null;
 
+export function setLocalAPIKey(key: string) {
+  if (key) {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("local_gemini_api_key", key);
+    }
+    aiInstance = new GoogleGenAI({ apiKey: key });
+  } else {
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("local_gemini_api_key");
+    }
+    aiInstance = null;
+  }
+}
+
 function getAI() {
   if (!aiInstance) {
-    const apiKey = process.env.GEMINI_API_KEY;
+    const localKey = typeof window !== "undefined" ? localStorage.getItem("local_gemini_api_key") : null;
+    const apiKey = localKey || process.env.GEMINI_API_KEY;
     if (!apiKey) {
       console.warn("GEMINI_API_KEY is missing. AI features will be disabled.");
       // Create a dummy instance or handle it gracefully in calls

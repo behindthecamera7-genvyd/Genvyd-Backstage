@@ -37,7 +37,7 @@ import {
   Cloud,
   CloudOff
 } from "lucide-react";
-import { generateBrandReport, generateShotSequence, regenerateShotPrompt, refineAllPrompts, generateStyleSpec } from "./geminiService";
+import { generateBrandReport, generateShotSequence, regenerateShotPrompt, refineAllPrompts, generateStyleSpec, setLocalAPIKey } from "./geminiService";
 import { BrandReport, Shot, Project } from "./types";
 import JSZip from "jszip";
 import * as XLSX from "xlsx";
@@ -160,6 +160,9 @@ function AppBody() {
   const [startPageDirective, setStartPageDirective] = useState("");
   const [startPageSpecMessage, setStartPageSpecMessage] = useState("");
   const [preSynthesizedSpec, setPreSynthesizedSpec] = useState<any>(null);
+  const [clientApiKey, setClientApiKey] = useState(() => (typeof window !== "undefined" ? localStorage.getItem("local_gemini_api_key") || "" : ""));
+  const [apiError, setApiError] = useState<string | null>(null);
+  const [showKeyOverlay, setShowKeyOverlay] = useState(false);
   const [view, setView] = useState<"projects" | "editor" | "gallery">("projects");
   const [editorMode, setEditorMode] = useState<"list" | "grid">("list");
 
@@ -469,6 +472,7 @@ function AppBody() {
     if (!script) return;
     setLoading(true);
     setLoadingMessage("Analyzing script and brand data...");
+    setApiError(null);
     try {
       let researchData = "";
       if (websiteUrl && websiteUrl.startsWith("http")) {
@@ -550,8 +554,7 @@ function AppBody() {
         saveProjectToCloud(proj);
       }
     } catch (error) {
-      console.error("Synthesis failed", error);
-      alert("Synthesis failed. Please check the console for details or try a different prompt.");
+      reportAestheticError("Aesthetic Script Synthesis", error);
     } finally {
       setLoading(false);
       setLoadingMessage("");
@@ -562,6 +565,7 @@ function AppBody() {
     if (!brandReport) return;
     setLoading(true);
     setLoadingMessage(`Re-imagining Shot ${shot.index}...`);
+    setApiError(null);
     try {
       const ideas = prompt("Any specific direction for this regeneration? (e.g., 'Make it rain colder', 'More neon')");
       const { image, motion } = await regenerateShotPrompt(shot, brandReport, ideas || undefined);
@@ -579,7 +583,7 @@ function AppBody() {
         selectedVersionId: newVersionId
       });
     } catch (error) {
-      console.error("Regeneration failed", error);
+      reportAestheticError(`Shot ${shot.index} Regeneration`, error);
     } finally {
       setLoading(false);
       setLoadingMessage("");
@@ -674,11 +678,27 @@ function AppBody() {
     setShotsSync(newShots);
   };
 
+  const reportAestheticError = (operationName: string, error: any) => {
+    console.error(`${operationName} failed:`, error);
+    const localKey = typeof window !== "undefined" ? localStorage.getItem("local_gemini_api_key") : null;
+    const isMissingKey = !localKey && !process.env.GEMINI_API_KEY;
+    if (isMissingKey) {
+      setApiError(
+        `Key Requirement: This operation requires a Gemini API Key. Since you are running in production on your deployed site, click the secure Key icon (🔑) in the top right header to paste your browser API key, and it will work beautifully!`
+      );
+    } else {
+      setApiError(
+        `Creative Engine Error: "${error.message || "Invalid API key response"}" during ${operationName}. Please check your connection or replace your browser API Key in the top right.`
+      );
+    }
+  };
+
   const handleGlobalRefinement = async (directiveOverride?: string) => {
     const directive = typeof directiveOverride === 'string' ? directiveOverride : globalRefinement;
     if (!directive || !currentProject || !brandReport) return;
     setLoading(true);
     setLoadingMessage("Synthesizing creative direction...");
+    setApiError(null);
     try {
       const refinements = await refineAllPrompts(shots, brandReport, directive);
       
@@ -719,7 +739,7 @@ function AppBody() {
       updateCurrentProject({ shots: updatedShots });
       setGlobalRefinement("");
     } catch (error) {
-      console.error("Global refinement failed:", error);
+      reportAestheticError("Global Refinement", error);
     } finally {
       setLoading(false);
       setLoadingMessage("");
@@ -731,6 +751,7 @@ function AppBody() {
     setLoading(true);
     setLoadingMessage("Synthesizing vibe and aesthetic specifications...");
     setShowApplyPassBanner(false);
+    setApiError(null);
     try {
       const spec = await generateStyleSpec(quickStyleDirective, currentProject.script);
       
@@ -753,7 +774,7 @@ function AppBody() {
       setGeneratedStyleSummary(`Lighting: ${spec.cinematicProfile?.lighting || ""} | Atmosphere: ${spec.cinematicProfile?.palette || ""} | Elements: ${(spec.motifs || []).join(", ")}`);
       setShowApplyPassBanner(true);
     } catch (error) {
-      console.error("Failed to generate style specs:", error);
+      reportAestheticError("Aesthetic Spec Auto-Fill", error);
     } finally {
       setLoading(false);
       setLoadingMessage("");
@@ -766,6 +787,7 @@ function AppBody() {
     setLoading(true);
     setLoadingMessage("Synthesizing aesthetic layer and brand specs from style directive...");
     setStartPageSpecMessage("");
+    setApiError(null);
     try {
       const spec = await generateStyleSpec(directive, script);
       setPreSynthesizedSpec(spec);
@@ -774,7 +796,7 @@ function AppBody() {
       setVisualTheme(details);
       setStartPageSpecMessage(`Aesthetic specs pre-configured successfully! Lighting: ${spec.cinematicProfile?.lighting || "Natural"}, Elements: ${(spec.motifs || []).join(", ") || "Office setups"}`);
     } catch (error) {
-      console.error("Failed to pre-synthesize specs:", error);
+      reportAestheticError("Setup Quick Style", error);
       setVisualTheme(directive);
     } finally {
       setLoading(false);
@@ -1064,6 +1086,18 @@ function AppBody() {
                 <Plus size={20} />
                 <span>New Production</span>
               </button>
+
+              <button 
+                onClick={() => setShowKeyOverlay(true)}
+                className={`px-4 py-3 rounded-xl flex items-center gap-2 font-mono text-xs uppercase tracking-wider border transition-all ${
+                  clientApiKey 
+                    ? "bg-brand-gold/10 border-brand-gold/20 text-brand-gold hover:bg-brand-gold hover:text-black shadow-[0_0_15px_rgba(212,175,55,0.1)]" 
+                    : "bg-white/5 border-white/5 text-white/40 hover:text-white"
+                }`}
+                title="Configure Deployed Gemini API Key"
+              >
+                🔑 {clientApiKey ? "Custom Key Set" : "Setup Deployed API Key"}
+              </button>
               
               <div className="h-8 w-px bg-white/10 mx-2" />
 
@@ -1268,6 +1302,18 @@ function AppBody() {
             className="flex items-center gap-2 text-white/40 font-mono text-[10px] tracking-widest"
           >
             <ChevronLeft size={16} /> Back to Library
+          </button>
+
+          <button 
+            onClick={() => setShowKeyOverlay(true)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] uppercase font-mono tracking-widest border transition-all ${
+              clientApiKey 
+                ? "bg-brand-red/10 border-brand-red/25 text-brand-red hover:bg-brand-red hover:text-black hover:border-brand-red shadow-[0_0_10px_rgba(224,30,55,0.15)]" 
+                : "bg-white/5 border-white/5 text-white/40 hover:text-white"
+            }`}
+            title="Configure Deployed Gemini API Key"
+          >
+            🔑 {clientApiKey ? "Custom Key Set" : "Setup Deployed API Key"}
           </button>
         </div>
 
@@ -1591,6 +1637,19 @@ function AppBody() {
           >
             <FolderOpen size={14} /> Export
           </button>
+
+          <button 
+            onClick={() => setShowKeyOverlay(true)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] uppercase font-mono tracking-widest border transition-all ${
+              clientApiKey 
+                ? "bg-brand-red/10 border-brand-red/25 text-brand-red hover:bg-brand-red hover:text-black hover:border-brand-red shadow-[0_0_10px_rgba(224,30,55,0.15)]" 
+                : "bg-white/5 border-white/5 text-white/45 hover:text-white hover:border-white/10"
+            }`}
+            title="Configure Deployed Gemini API Key"
+          >
+            🔑 {clientApiKey ? "Custom Key Set" : "Setup Deployed API Key"}
+          </button>
+
           <button 
             onClick={() => setView("projects")}
             className="text-[10px] uppercase tracking-widest text-gray-500 hover:text-white transition-colors flex items-center gap-2 px-4 py-2 hover:bg-white/5 rounded-lg"
@@ -2494,6 +2553,146 @@ function AppBody() {
             </motion.div>
             {/* Click outside to close */}
             <div className="absolute inset-0 z-[-1]" onClick={() => setSelectedImage(null)} />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Floating API Key / Process Alerts */}
+      <AnimatePresence>
+        {apiError && (
+          <motion.div
+            initial={{ opacity: 0, y: -50, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -50, scale: 0.95 }}
+            className="fixed top-24 right-8 z-[2500] max-w-md w-full no-print shadow-[0_20px_50px_rgba(0,0,0,0.5)]"
+          >
+            <div className="bg-brand-ink/95 border-2 border-red-500/30 rounded-2xl p-6 relative overflow-hidden backdrop-blur-xl">
+              <div className="absolute top-0 left-0 w-2 h-full bg-red-600 animate-pulse" />
+              
+              <div className="flex gap-4">
+                <div className="flex-1 space-y-2 pl-2">
+                  <div className="flex items-center gap-2 text-red-500">
+                    <span className="text-[12px] font-mono uppercase tracking-[0.4em] font-black">AI_ENGINE_LATENCY</span>
+                  </div>
+                  <p className="text-[11px] leading-relaxed text-white/85">
+                    {apiError}
+                  </p>
+                  
+                  <div className="flex gap-3 pt-2">
+                    <button
+                      onClick={() => {
+                        setApiError(null);
+                        setShowKeyOverlay(true);
+                      }}
+                      className="px-3 py-1.5 bg-red-500/10 text-red-300 hover:bg-brand-gold hover:text-black hover:border-brand-gold border border-red-500/20 rounded-md text-[9px] font-mono uppercase tracking-widest font-black transition-all"
+                    >
+                      🔑 Set API Key
+                    </button>
+                    <button
+                      onClick={() => setApiError(null)}
+                      className="px-3 py-1.5 bg-white/5 text-white/50 hover:bg-white/10 hover:text-white rounded-md text-[9px] font-mono uppercase tracking-widest transition-all"
+                    >
+                      Dismiss Error
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Client API Key Settings Overlay */}
+      <AnimatePresence>
+        {showKeyOverlay && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[2000] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 no-print shadow-[0_0_100px_rgba(0,0,0,0.9)]"
+            onClick={() => setShowKeyOverlay(false)}
+          >
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-brand-ink border-2 border-brand-gold/30 rounded-[2.5rem] p-10 max-w-lg w-full space-y-8 shadow-[0_30px_90px_rgba(0,0,0,0.8)] relative"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="absolute top-6 right-6">
+                <button 
+                  onClick={() => setShowKeyOverlay(false)}
+                  className="text-white/40 hover:text-white transition-colors bg-white/5 p-2 rounded-full border border-white/5"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div>
+                <h3 className="text-xl font-display font-black text-brand-gold uppercase tracking-tight">🔑 Gemini AI Credentials</h3>
+                <div className="h-0.5 w-12 bg-brand-gold/30 mt-2" />
+                <p className="text-[11px] font-mono text-white/50 uppercase tracking-wider mt-4 leading-relaxed">
+                  Provide your personal Gemini API Key for client-side execution on static external deployments like GitHub Pages.
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-mono uppercase tracking-widest text-white/40 block">Gemini API Key</label>
+                  <input
+                    type="password"
+                    placeholder="AIzaSy..."
+                    value={clientApiKey}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setClientApiKey(value);
+                      setLocalAPIKey(value);
+                    }}
+                    className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-sm font-mono text-white placeholder-white/20 focus:outline-none focus:border-brand-gold/40 transition-colors"
+                  />
+                </div>
+                
+                <div className="p-4 bg-brand-gold/5 border border-brand-gold/10 rounded-xl space-y-2">
+                  <div className="flex items-center gap-2">
+                    <div className="h-1.5 w-1.5 rounded-full bg-brand-gold animate-pulse" />
+                    <span className="text-[9px] font-mono uppercase tracking-widest text-brand-gold font-bold">Privacy Protocol</span>
+                  </div>
+                  <p className="text-[10px] leading-relaxed text-white/60">
+                    Your key is stored securely inside your browser's private <code className="bg-black/40 px-1 py-0.5 rounded text-brand-gold">localStorage</code>. It is never routed to any external backend server and stays entirely private under your control.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex gap-4">
+                <button
+                  onClick={() => {
+                    setClientApiKey("");
+                    setLocalAPIKey("");
+                    setShowKeyOverlay(false);
+                  }}
+                  className="w-full py-3 bg-red-950/20 text-red-400 border border-red-900/30 font-mono text-[10px] uppercase tracking-widest font-black rounded-xl hover:bg-red-950 hover:text-red-300 transition-all"
+                >
+                  Clear Custom Key
+                </button>
+                <button
+                  onClick={() => setShowKeyOverlay(false)}
+                  className="w-full py-3 bg-brand-gold text-black font-mono text-[10px] uppercase tracking-widest font-black rounded-xl hover:bg-white transition-all shadow-[0_0_30px_rgba(212,175,55,0.2)]"
+                >
+                  Save and Dismiss
+                </button>
+              </div>
+              
+              <div className="text-center">
+                <a 
+                  href="https://aistudio.google.com/app/apikey" 
+                  target="_blank" 
+                  rel="noopener noreferrer" 
+                  className="text-[9px] uppercase tracking-wider text-brand-gold underline hover:text-white transition-colors block"
+                >
+                  Get a free Gemini API key on Google AI Studio &rarr;
+                </a>
+              </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
