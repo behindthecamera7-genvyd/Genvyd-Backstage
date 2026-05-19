@@ -157,6 +157,9 @@ function AppBody() {
   const [showApplyPassBanner, setShowApplyPassBanner] = useState(false);
   const [generatedStyleSummary, setGeneratedStyleSummary] = useState("");
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [startPageDirective, setStartPageDirective] = useState("");
+  const [startPageSpecMessage, setStartPageSpecMessage] = useState("");
+  const [preSynthesizedSpec, setPreSynthesizedSpec] = useState<any>(null);
   const [view, setView] = useState<"projects" | "editor" | "gallery">("projects");
   const [editorMode, setEditorMode] = useState<"list" | "grid">("list");
 
@@ -486,14 +489,16 @@ function AppBody() {
       const report: BrandReport = {
         mission: rawReport.mission || "",
         narrativeAnchor: rawReport.narrativeAnchor || "",
-        motifs: Array.isArray(rawReport.motifs) ? rawReport.motifs : [],
-        targetSoftware: rawReport.targetSoftware || "Midjourney v6",
-        characterDescription: rawReport.characterDescription || "",
-        characters: (rawReport as any).characters || [],
+        motifs: (preSynthesizedSpec?.motifs && preSynthesizedSpec.motifs.length > 0)
+          ? preSynthesizedSpec.motifs
+          : (Array.isArray(rawReport.motifs) ? rawReport.motifs : []),
+        targetSoftware: preSynthesizedSpec?.targetSoftware || rawReport.targetSoftware || "Midjourney v6",
+        characterDescription: preSynthesizedSpec?.characterDescription || rawReport.characterDescription || "",
+        characters: preSynthesizedSpec?.characters || (rawReport as any).characters || [],
         cinematicProfile: {
-          lighting: rawReport.cinematicProfile?.lighting || "",
-          palette: rawReport.cinematicProfile?.palette || "",
-          lens: rawReport.cinematicProfile?.lens || ""
+          lighting: preSynthesizedSpec?.cinematicProfile?.lighting || rawReport.cinematicProfile?.lighting || "",
+          palette: preSynthesizedSpec?.cinematicProfile?.palette || rawReport.cinematicProfile?.palette || "",
+          lens: preSynthesizedSpec?.cinematicProfile?.lens || rawReport.cinematicProfile?.lens || ""
         }
       };
       
@@ -749,6 +754,28 @@ function AppBody() {
       setShowApplyPassBanner(true);
     } catch (error) {
       console.error("Failed to generate style specs:", error);
+    } finally {
+      setLoading(false);
+      setLoadingMessage("");
+    }
+  };
+
+  const handleStartPageQuickStyleGenerate = async (directiveOverride?: string) => {
+    const directive = directiveOverride || startPageDirective;
+    if (!directive) return;
+    setLoading(true);
+    setLoadingMessage("Synthesizing aesthetic layer and brand specs from style directive...");
+    setStartPageSpecMessage("");
+    try {
+      const spec = await generateStyleSpec(directive, script);
+      setPreSynthesizedSpec(spec);
+      
+      const details = `${directive}. Lighting: ${spec.cinematicProfile?.lighting || "Bright high-key keylight"} | Atmosphere: ${spec.cinematicProfile?.palette || "Clean modern tones"} | Lens: ${spec.cinematicProfile?.lens || "35mm prime"}`;
+      setVisualTheme(details);
+      setStartPageSpecMessage(`Aesthetic specs pre-configured successfully! Lighting: ${spec.cinematicProfile?.lighting || "Natural"}, Elements: ${(spec.motifs || []).join(", ") || "Office setups"}`);
+    } catch (error) {
+      console.error("Failed to pre-synthesize specs:", error);
+      setVisualTheme(directive);
     } finally {
       setLoading(false);
       setLoadingMessage("");
@@ -1313,6 +1340,42 @@ function AppBody() {
             </p>
           </div>
 
+          {/* Start Page Quick Style Assistant */}
+          <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-6 space-y-3 relative overflow-hidden">
+            <div className="flex items-center gap-2 text-brand-gold">
+              <Sparkles size={16} className="animate-pulse" />
+              <span className="text-[10px] uppercase font-mono font-black tracking-wider text-white">
+                💡 AI Aesthetic Style Synthesizer
+              </span>
+            </div>
+            <p className="text-[10px] text-white/40 font-mono uppercase tracking-widest leading-normal">
+              Type a simple style concept below to automatically pre-configure lens, lighting, motifs, and camera gear.
+            </p>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="e.g. corporate style and bright, moody amber retro neon, high-key warm photography..."
+                className="flex-1 bg-black/40 border border-white/5 rounded-xl px-4 py-3 text-xs font-mono text-white placeholder:text-white/20 focus:outline-none focus:border-brand-gold/40"
+                value={startPageDirective}
+                onChange={(e) => setStartPageDirective(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleStartPageQuickStyleGenerate()}
+              />
+              <button
+                type="button"
+                onClick={() => handleStartPageQuickStyleGenerate()}
+                disabled={loading || !startPageDirective}
+                className="bg-brand-gold text-black font-black text-[9.5px] uppercase tracking-widest px-5 py-3 rounded-xl hover:bg-white transition-all disabled:opacity-30 whitespace-nowrap active:scale-95 animate-pulse-glow"
+              >
+                Synthesize Vibe
+              </button>
+            </div>
+            {startPageSpecMessage && (
+              <p className="text-[10px] text-brand-cyan font-mono italic">
+                ✓ {startPageSpecMessage}
+              </p>
+            )}
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">
               <div className="flex items-center gap-2 mb-1 px-1">
@@ -1670,10 +1733,11 @@ function AppBody() {
                   <div className="flex gap-2.5 flex-wrap sm:flex-nowrap">
                     <button
                       onClick={() => {
-                        setGlobalRefinement(`Refine storyboard styling and details to match updated aesthetic spec: ${generatedStyleSummary}`);
+                        const directive = `Refine storyboard styling and details to match updated aesthetic spec: ${generatedStyleSummary}`;
+                        setGlobalRefinement(directive);
                         setShowApplyPassBanner(false);
-                        // Trigger immediate refinement
-                        setTimeout(() => handleGlobalRefinement(), 100);
+                        // Trigger immediate refinement with the calculated directive parameter
+                        handleGlobalRefinement(directive);
                       }}
                       className="bg-brand-cyan text-black font-black text-[9.5px] uppercase tracking-widest px-4 py-3 rounded-lg hover:bg-white hover:text-black transition-all whitespace-nowrap active:scale-95"
                     >
