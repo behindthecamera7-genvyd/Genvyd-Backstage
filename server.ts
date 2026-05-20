@@ -37,6 +37,60 @@ async function startServer() {
     }
   });
 
+  // API Route for Image Generation with gemini-2.5-flash-image
+  app.post("/api/generate-image", async (req, res) => {
+    const { prompt, aspectRatio, clientKey } = req.body;
+    if (!prompt) return res.status(400).json({ error: "Prompt is required" });
+
+    const keyToUse = clientKey || process.env.GEMINI_API_KEY;
+    if (!keyToUse) {
+      return res.status(401).json({ error: "Missing Gemini API Key. Please provide your browser API Key by clicking the 🔑 key icon in the upper right header." });
+    }
+
+    try {
+      const { GoogleGenAI } = await import("@google/genai");
+      const aiTemp = new GoogleGenAI({
+        apiKey: keyToUse,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          }
+        }
+      });
+
+      const response = await aiTemp.models.generateContent({
+        model: 'gemini-2.5-flash-image',
+        contents: {
+          parts: [{ text: prompt }]
+        },
+        config: {
+          imageConfig: {
+            aspectRatio: aspectRatio || "16:9"
+          }
+        }
+      });
+
+      let base64Image = "";
+      if (response?.candidates?.[0]?.content?.parts) {
+        for (const part of response.candidates[0].content.parts) {
+          if (part.inlineData) {
+            base64Image = part.inlineData.data;
+            break;
+          }
+        }
+      }
+
+      if (!base64Image) {
+        return res.status(500).json({ error: "API returned no visual bytes. Prompt might have triggered safety filters. Try editing or simplifying your prompt." });
+      }
+
+      res.json({ imageUrl: `data:image/png;base64,${base64Image}` });
+    } catch (error: any) {
+      console.error("Server image generation failed:", error);
+      res.status(500).json({ error: error.message || "Failed to generate image" });
+    }
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

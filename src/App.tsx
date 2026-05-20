@@ -166,6 +166,14 @@ function AppBody() {
   const [view, setView] = useState<"projects" | "editor" | "gallery">("projects");
   const [editorMode, setEditorMode] = useState<"list" | "grid">("list");
 
+  // AI Preview Crafting Desk state
+  const [activeCraftingShot, setActiveCraftingShot] = useState<Shot | null>(null);
+  const [craftingPrompt, setCraftingPrompt] = useState("");
+  const [craftingAspectRatio, setCraftingAspectRatio] = useState("16:9");
+  const [generationLoading, setGenerationLoading] = useState(false);
+  const [generationError, setGenerationError] = useState<string | null>(null);
+  const [generatedDrafts, setGeneratedDrafts] = useState<string[]>([]);
+
   // Auth Listener
   useEffect(() => {
     let unsubFirestore: (() => void) | null = null;
@@ -587,6 +595,96 @@ function AppBody() {
     } finally {
       setLoading(false);
       setLoadingMessage("");
+    }
+  };
+
+  const openCraftingDesk = (shot: Shot) => {
+    setActiveCraftingShot(shot);
+    const activeVersion = (shot.versions || []).find(v => v.id === shot.selectedVersionId) || (shot.versions || [])[0];
+    setCraftingPrompt(activeVersion ? activeVersion.imagePrompt : "");
+    setCraftingAspectRatio(shot.index.includes('b') ? '4:3' : '16:9');
+    setGeneratedDrafts([]);
+    setGenerationError(null);
+    setGenerationLoading(false);
+  };
+
+  const handleAISinglePreviewGen = async (shotId: string, promptText: string, ratio: string) => {
+    setLoading(true);
+    setLoadingMessage("Generating cinematic preview...");
+    setApiError(null);
+    try {
+      const res = await fetch("/api/generate-image", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          prompt: promptText,
+          aspectRatio: ratio,
+          clientKey: clientApiKey || localStorage.getItem("local_gemini_api_key") || undefined,
+        })
+      });
+
+      const data = res.ok ? await res.json() : null;
+      if (!res.ok || !data || !data.imageUrl) {
+        const errorMsg = data?.error || `Server responded with status ${res.status}`;
+        throw new Error(errorMsg);
+      }
+
+      const shot = shots.find(s => s.id === shotId);
+      if (!shot) return;
+
+      const newVersions = shot.versions.map(v => 
+        v.id === shot.selectedVersionId ? { ...v, imagePreview: data.imageUrl } : v
+      );
+      updateShot(shotId, { versions: newVersions });
+    } catch (error: any) {
+      reportAestheticError("AI Preview Draft Generation", error);
+    } finally {
+      setLoading(false);
+      setLoadingMessage("");
+    }
+  };
+
+  const generate3CraftDrafts = async () => {
+    if (!activeCraftingShot) return;
+    setGenerationLoading(true);
+    setGenerationError(null);
+    setGeneratedDrafts([]);
+
+    try {
+      const promises = Array.from({ length: 3 }).map(async (_, index) => {
+        const res = await fetch("/api/generate-image", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            prompt: craftingPrompt,
+            aspectRatio: craftingAspectRatio,
+            clientKey: clientApiKey || localStorage.getItem("local_gemini_api_key") || undefined,
+          })
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || `Option ${index + 1} failed`);
+        }
+        return data.imageUrl;
+      });
+
+      const results = await Promise.all(promises);
+      setGeneratedDrafts(results);
+    } catch (err: any) {
+      console.error("3-Draft Generation Failed:", err);
+      const isMissingKey = !clientApiKey && !localStorage.getItem("local_gemini_api_key") && !process.env.GEMINI_API_KEY;
+      if (isMissingKey) {
+        setGenerationError("Key Requirement: Image generation requires a Gemini API Key. Click the 🔑 icon in the header to set yours.");
+      } else {
+        setGenerationError(err.message || "Creative engine timed out. Please try modifying your prompt text.");
+      }
+    } finally {
+      setGenerationLoading(false);
     }
   };
 
@@ -2128,7 +2226,7 @@ function AppBody() {
                             </div>
                           </div>
                           
-                          <div className="flex-1 relative group bg-black/40 rounded-xl border border-dashed border-white/10 flex items-center justify-center overflow-hidden transition-all hover:border-brand-gold/30 min-h-[160px] max-h-[400px]">
+                          <div className="flex-1 relative group bg-black/40 rounded-xl border border-dashed border-white/10 flex items-center justify-center overflow-hidden transition-all hover:border-brand-gold/30 min-h-[180px] max-h-[400px]">
                             {activeVersion.imagePreview ? (
                               <div className="relative w-full h-full flex items-center justify-center">
                                 <img 
@@ -2136,40 +2234,72 @@ function AppBody() {
                                   alt="Preview" 
                                   className="max-w-full max-h-full object-contain shadow-2xl" 
                                 />
-                                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4">
-                                  <label className="cursor-pointer bg-white text-black h-12 w-12 rounded-full flex items-center justify-center hover:bg-brand-gold transition-all shadow-2xl active:scale-95">
-                                    <Upload size={20} />
+                                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                                  <label className="cursor-pointer bg-white text-black h-10 w-10 rounded-full flex items-center justify-center hover:bg-brand-gold transition-all shadow-2xl active:scale-95 translate-y-2 group-hover:translate-y-0 duration-200" title="Upload custom render file">
+                                    <Upload size={16} />
                                     <input type="file" className="hidden" accept="image/*" onChange={(e) => {
                                       e.stopPropagation();
                                       if (e.target.files) handleFileUpload(shot.id, e.target.files[0]);
                                     }} />
                                   </label>
+                                  
+                                  <button 
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      openCraftingDesk(shot);
+                                    }}
+                                    className="bg-white text-black h-10 w-10 rounded-full flex items-center justify-center hover:bg-brand-gold transition-all shadow-2xl active:scale-95 translate-y-2 group-hover:translate-y-0 duration-200 delay-75"
+                                    title="Regenerate alternative preview candidates with AI"
+                                  >
+                                    <Sparkles size={16} />
+                                  </button>
+
                                   <button 
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       setSelectedImage(activeVersion.imagePreview || null);
                                     }}
-                                    className="bg-white text-black h-12 w-12 rounded-full flex items-center justify-center hover:bg-brand-gold transition-all shadow-2xl active:scale-95"
+                                    className="bg-white text-black h-10 w-10 rounded-full flex items-center justify-center hover:bg-brand-gold transition-all shadow-2xl active:scale-95 translate-y-2 group-hover:translate-y-0 duration-200 delay-150"
+                                    title="Maximize view"
                                   >
-                                    <Maximize2 size={20} />
+                                    <Maximize2 size={16} />
                                   </button>
                                 </div>
                                 {shot.requiresFaceSwap && (
-                                  <div className="absolute top-2 left-2 bg-red-500 text-white text-[8px] font-mono px-2 py-1 rounded-md shadow-lg animate-pulse uppercase tracking-widest font-black flex items-center gap-1">
+                                  <div className="absolute bottom-2 left-2 bg-red-500 text-white text-[8px] font-mono px-2 py-1 rounded-md shadow-lg animate-pulse uppercase tracking-widest font-black flex items-center gap-1">
                                     <RefreshCcw size={10} />
                                     Face Swap AI Required
                                   </div>
                                 )}
                               </div>
                             ) : (
-                              <label className="cursor-pointer flex flex-col items-center gap-3 text-white/30 hover:text-white/80 transition-all">
-                                <Upload size={24} className="opacity-30" />
-                                <span className="text-[10px] uppercase font-mono tracking-widest font-bold">Upload Render</span>
-                                <input type="file" className="hidden" accept="image/*" onChange={(e) => {
-                                  e.stopPropagation();
-                                  if (e.target.files) handleFileUpload(shot.id, e.target.files[0]);
-                                }} />
-                              </label>
+                              <div className="flex flex-col items-center gap-4 text-center p-4">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openCraftingDesk(shot);
+                                  }}
+                                  className="px-4 py-2 bg-brand-gold text-black font-mono text-[9px] uppercase tracking-[0.15em] font-black rounded-lg hover:bg-white hover:scale-105 transition-all shadow-[0_0_15px_rgba(212,175,55,0.2)] flex items-center gap-1.5"
+                                >
+                                  <Sparkles size={11} /> Create AI Previews
+                                </button>
+                                
+                                <div className="flex items-center gap-2 text-white/10 w-full px-4">
+                                  <div className="h-px flex-1 bg-white/5" />
+                                  <span className="text-[8px] font-mono uppercase tracking-widest">or</span>
+                                  <div className="h-px flex-1 bg-white/5" />
+                                </div>
+
+                                <label className="cursor-pointer flex items-center gap-1.5 text-white/30 hover:text-brand-cyan/80 transition-all bg-white/5 px-2.5 py-1.5 border border-white/5 rounded-md hover:border-brand-cyan/20">
+                                  <Upload size={10} />
+                                  <span className="text-[9px] uppercase font-mono tracking-wider">Upload Render</span>
+                                  <input type="file" className="hidden" accept="image/*" onChange={(e) => {
+                                    e.stopPropagation();
+                                    if (e.target.files) handleFileUpload(shot.id, e.target.files[0]);
+                                  }} />
+                                </label>
+                              </div>
                             )}
                           </div>
                           <div className="space-y-1">
@@ -2553,6 +2683,217 @@ function AppBody() {
             </motion.div>
             {/* Click outside to close */}
             <div className="absolute inset-0 z-[-1]" onClick={() => setSelectedImage(null)} />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* AI Preview Crafting Desk Modal */}
+      <AnimatePresence>
+        {activeCraftingShot && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[2030] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 md:p-8 no-print overflow-y-auto"
+            onClick={() => setActiveCraftingShot(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-brand-ink border-2 border-brand-gold/20 rounded-[2rem] p-6 md:p-8 max-w-4xl w-full space-y-6 shadow-[0_35px_100px_rgba(0,0,0,0.9)] relative text-left"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="absolute top-6 right-6">
+                <button
+                  onClick={() => setActiveCraftingShot(null)}
+                  className="text-white/40 hover:text-white transition-colors bg-white/5 p-2 rounded-full border border-white/5 cursor-pointer"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {/* Title Header */}
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="px-2 py-0.5 bg-brand-gold/10 text-brand-gold text-[10px] font-mono border border-brand-gold/20 rounded uppercase font-black">
+                    AI Crafting Desk
+                  </span>
+                  <span className="text-[10px] font-mono text-white/40">
+                    Shot {activeCraftingShot.index} ({activeCraftingShot.type.toUpperCase()})
+                  </span>
+                </div>
+                <h3 className="text-xl md:text-2xl font-display font-black text-white uppercase tracking-tight mt-1">
+                  🎬 Generate <span className="text-brand-gold">Thumbnail Previews</span>
+                </h3>
+                <p className="text-[10px] font-mono text-white/50 uppercase tracking-widest mt-1 leading-relaxed">
+                  Auto-generate 3 visual test cards instantly to inspect the lighting, palette and subject framing of your image prompt.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                {/* Left Column: Input Prompt Configuration */}
+                <div className="lg:col-span-5 space-y-5">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-mono uppercase tracking-widest text-white/40 block">
+                      Target Creative Instruction
+                    </label>
+                    <textarea
+                      rows={5}
+                      value={craftingPrompt}
+                      onChange={(e) => setCraftingPrompt(e.target.value)}
+                      className="w-full bg-black/60 border border-white/10 rounded-xl p-4 text-[11px] font-mono text-brand-cyan leading-relaxed focus:outline-none focus:border-brand-gold/40 transition-all resize-none"
+                      placeholder="Add image prompt instructions here..."
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-mono uppercase tracking-widest text-white/40 block">
+                        Aspect Ratio
+                      </label>
+                      <select
+                        value={craftingAspectRatio}
+                        onChange={(e) => setCraftingAspectRatio(e.target.value)}
+                        className="w-full bg-black border border-white/10 rounded-xl px-3 py-2.5 text-xs font-mono text-white focus:outline-none focus:border-brand-gold/40 transition-all cursor-pointer"
+                      >
+                        <option value="16:9">16:9 Cinematic (Wide)</option>
+                        <option value="9:16">9:16 Vertical (Mobile)</option>
+                        <option value="4:3">4:3 Card (Standard)</option>
+                        <option value="1:1">1:1 Square</option>
+                      </select>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-mono uppercase tracking-widest text-white/40 block">
+                        Direct Software
+                      </label>
+                      <div className="w-full bg-white/5 border border-white/5 rounded-xl px-3 py-2.5 text-xs font-mono text-white/60 flex items-center justify-between">
+                        <span>Gemini 2.5</span>
+                        <span className="text-[8px] bg-brand-cyan/20 text-brand-cyan font-bold px-1.5 py-0.5 rounded uppercase tracking-widest">FLASH</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="pt-2">
+                    <button
+                      onClick={generate3CraftDrafts}
+                      disabled={generationLoading || !craftingPrompt}
+                      className="w-full py-3.5 bg-brand-gold hover:bg-white text-black font-mono text-[10px] uppercase tracking-[0.2em] font-black rounded-xl transition-all shadow-[0_0_30px_rgba(212,175,55,0.2)] flex items-center justify-center gap-2 cursor-pointer disabled:opacity-30 disabled:scale-100 active:scale-98"
+                    >
+                      {generationLoading ? (
+                        <>
+                          <RefreshCcw size={12} className="animate-spin" />
+                          Running 3x Parallel Gen...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles size={12} />
+                          Generate 3 Free Drafts
+                        </>
+                      )}
+                    </button>
+                    <p className="text-[9px] font-mono text-center text-white/30 uppercase mt-2 tracking-wide">
+                      Generating multiple drafts avoids single-try aesthetic risks
+                    </p>
+                  </div>
+                </div>
+
+                {/* Right Column: Previews Rendering Section */}
+                <div className="lg:col-span-7 bg-black/30 border border-white/5 rounded-2xl p-6 flex flex-col justify-center min-h-[300px] relative">
+                  {generationLoading && (
+                    <div className="absolute inset-0 bg-brand-ink/40 backdrop-blur-[2px] flex flex-col items-center justify-center gap-4 z-10 rounded-2xl">
+                      <div className="relative flex items-center justify-center">
+                        <div className="h-12 w-12 rounded-full border-2 border-brand-gold/20 border-t-brand-gold animate-spin" />
+                        <Sparkles size={16} className="absolute text-brand-gold animate-bounce" />
+                      </div>
+                      <div className="text-center space-y-1">
+                        <span className="text-[9px] font-mono uppercase tracking-[0.34em] text-brand-gold animate-pulse block font-black">Connecting Creative Host</span>
+                        <p className="text-[10px] text-white/50 font-mono uppercase">Generating 3 unique variants in parallel...</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {generationError && (
+                    <div className="text-center py-8 space-y-4 max-w-md mx-auto">
+                      <div className="text-red-500 bg-red-500/10 p-4 border border-red-500/25 rounded-xl text-left space-y-1">
+                        <span className="text-[9px] font-mono font-black uppercase tracking-widest text-red-400 block">⚠️ CREATIVE_ERROR</span>
+                        <p className="text-[10px] font-mono leading-relaxed">{generationError}</p>
+                      </div>
+                      <div className="flex gap-4 justify-center">
+                        <button
+                          onClick={() => {
+                            setActiveCraftingShot(null);
+                            setShowKeyOverlay(true);
+                          }}
+                          className="px-4 py-2 bg-white/5 hover:bg-white/10 text-white font-mono text-[9px] uppercase tracking-widest rounded-lg transition-all cursor-pointer"
+                        >
+                          🔑 Fix API Key
+                        </button>
+                        <button
+                          onClick={generate3CraftDrafts}
+                          className="px-4 py-2 bg-brand-gold text-black font-mono text-[9px] uppercase tracking-widest rounded-lg transition-all font-black cursor-pointer"
+                        >
+                          Retry Generation
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {!generationLoading && !generationError && generatedDrafts.length === 0 && (
+                    <div className="text-center py-12 space-y-3">
+                      <div className="mx-auto h-12 w-12 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-white/30">
+                        <Camera size={20} />
+                      </div>
+                      <div className="space-y-1">
+                        <h4 className="text-xs uppercase font-mono tracking-wider font-bold text-white/70">No Active Previews</h4>
+                        <p className="text-[10px] text-white/40 max-w-sm mx-auto leading-relaxed uppercase tracking-wide">
+                          Adjust your prompt settings in the left column and click generate to sample 3 direct options side by side.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {!generationError && generatedDrafts.length > 0 && (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between border-b border-white/5 pb-2">
+                        <span className="text-[9px] font-mono uppercase tracking-widest text-brand-gold font-bold">Generated Candidates (Choose One):</span>
+                        <span className="text-[9px] font-mono uppercase tracking-widest text-white/40">Select image card to apply</span>
+                      </div>
+                      <div className="grid grid-cols-3 gap-3">
+                        {generatedDrafts.map((url, idx) => (
+                          <div
+                            key={idx}
+                            onClick={() => {
+                              const shotId = activeCraftingShot.id;
+                              const shot = shots.find(s => s.id === shotId);
+                              if (!shot) return;
+                              const newVersions = shot.versions.map(v => 
+                                v.id === shot.selectedVersionId ? { ...v, imagePreview: url } : v
+                              );
+                              updateShot(shotId, { versions: newVersions });
+                              setActiveCraftingShot(null);
+                            }}
+                            className="group/item relative rounded-xl overflow-hidden cursor-pointer border border-white/10 hover:border-brand-gold bg-black aspect-video hover:shadow-[0_0_20px_rgba(212,175,55,0.3)] transition-all flex items-center justify-center"
+                          >
+                            <img src={url} alt={`Candidate ${idx+1}`} className="w-full h-full object-contain transition-transform group-hover/item:scale-105 duration-300" referrerPolicy="no-referrer" />
+                            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover/item:opacity-100 transition-opacity flex flex-col justify-end p-2 text-center text-white">
+                              <span className="text-[8px] font-mono uppercase tracking-wider font-bold text-brand-gold">Apply Candidate {idx + 1}</span>
+                            </div>
+                            <span className="absolute top-1.5 left-1.5 bg-black/80 px-1.5 py-0.5 rounded text-[8px] font-mono text-white/70">#{idx + 1}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="bg-brand-gold/5 border border-brand-gold/10 rounded-xl p-3 text-center">
+                        <p className="text-[9px] font-mono text-brand-gold uppercase tracking-wider">
+                          💡 Tip: Clicking any of the three above candidates commits it immediately to the active shot's storyboard thumbnail card.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
