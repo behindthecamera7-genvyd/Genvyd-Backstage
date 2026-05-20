@@ -39,15 +39,17 @@ async function startServer() {
 
   // API Route for Image Generation with gemini-2.5-flash-image
   app.post("/api/generate-image", async (req, res) => {
-    const { prompt, aspectRatio, clientKey } = req.body;
-    if (!prompt) return res.status(400).json({ error: "Prompt is required" });
-
-    const keyToUse = clientKey || process.env.GEMINI_API_KEY;
-    if (!keyToUse) {
-      return res.status(401).json({ error: "Missing Gemini API Key. Please provide your browser API Key by clicking the 🔑 key icon in the upper right header." });
-    }
-
     try {
+      const { prompt, aspectRatio, clientKey } = req.body || {};
+      if (!prompt) {
+        return res.status(400).json({ error: "Prompt is required" });
+      }
+
+      const keyToUse = clientKey || process.env.GEMINI_API_KEY;
+      if (!keyToUse) {
+        return res.status(401).json({ error: "Missing Gemini API Key. Please provide your browser API Key by clicking the 🔑 key icon in the upper right header." });
+      }
+
       const { GoogleGenAI } = await import("@google/genai");
       const aiTemp = new GoogleGenAI({
         apiKey: keyToUse,
@@ -84,10 +86,10 @@ async function startServer() {
         return res.status(500).json({ error: "API returned no visual bytes. Prompt might have triggered safety filters. Try editing or simplifying your prompt." });
       }
 
-      res.json({ imageUrl: `data:image/png;base64,${base64Image}` });
+      return res.json({ imageUrl: `data:image/png;base64,${base64Image}` });
     } catch (error: any) {
       console.error("Server image generation failed:", error);
-      res.status(500).json({ error: error.message || "Failed to generate image" });
+      return res.status(500).json({ error: error.message || "Failed to generate image" });
     }
   });
 

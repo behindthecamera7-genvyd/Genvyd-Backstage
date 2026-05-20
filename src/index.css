@@ -6,18 +6,135 @@
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
   --font-display: "Space Grotesk", sans-serif;
   
-  --color-brand-gold: #FAFAFA;
-  --color-brand-ink: #000000;
+  --color-brand-gold: var(--theme-gold);
+  --color-brand-ink: var(--theme-bg);
   --color-brand-cyan: #FF3B3B;
   --color-brand-red: #FF3B3B;
-  --color-brand-white: #FFFFFF;
+  --color-brand-white: var(--theme-text);
+  --color-brand-card: var(--theme-card);
+}
+
+:root {
+  --theme-bg: #12141C; /* Premium sleek studio grey */
+  --theme-card: #1B1E26; /* Soft cards backdrop */
+  --theme-text: #FFFFFF;
+  --theme-text-muted: #94A3B8;
+  --theme-gold: #FAFAFA;
+}
+
+.theme-dark {
+  --theme-bg: #12141C; /* Sleek charcoal interface */
+  --theme-card: #1A1C23;
+  --theme-text: #F1F5F9;
+  --theme-text-muted: #94A3B8;
+  --theme-gold: #FAFAFA;
+  color-scheme: dark;
+}
+
+.theme-light {
+  --theme-bg: #F8FAFC; /* Crisp creative app slate/white gradient */
+  --theme-card: #FFFFFF;
+  --theme-text: #0F172A; /* Slate-900 contrast */
+  --theme-text-muted: #475569;
+  --theme-gold: #936E04; /* Readable golden accent */
+  color-scheme: light;
+}
+
+/* Interactive accessibility overrides for crisp Light Mode rendering */
+.theme-light h2, .theme-light h3, .theme-light h1, .theme-light h4, .theme-light p, .theme-light span, .theme-light div, .theme-light li {
+  transition: color 0.15s ease-in-out, background-color 0.15s ease-in-out, border-color 0.15s ease-in-out;
+}
+
+.theme-light .text-white {
+  color: #0F172A !important;
+}
+.theme-light .text-white\/90 {
+  color: #1E293B !important;
+}
+.theme-light .text-white\/80 {
+  color: #1E293B !important;
+}
+.theme-light .text-white\/70 {
+  color: #334155 !important;
+}
+.theme-light .text-white\/60 {
+  color: #475569 !important;
+}
+.theme-light .text-white\/50 {
+  color: #475569 !important;
+}
+.theme-light .text-white\/40 {
+  color: #64748B !important;
+}
+.theme-light .text-white\/30 {
+  color: #94A3B8 !important;
+}
+.theme-light .text-white\/20 {
+  color: #CBD5E1 !important;
+}
+.theme-light .text-white\/10 {
+  color: #E2E8F0 !important;
+}
+
+/* Light Mode Borders */
+.theme-light .border-white\/5 {
+  border-color: rgba(15, 23, 42, 0.06) !important;
+}
+.theme-light .border-white\/10 {
+  border-color: rgba(15, 23, 42, 0.1) !important;
+}
+.theme-light .border-white\/20 {
+  border-color: rgba(15, 23, 42, 0.16) !important;
+}
+
+/* Light Mode Backdrops */
+.theme-light .bg-black {
+  background-color: #E2E8F0 !important;
+}
+.theme-light .bg-black\/80 {
+  background-color: rgba(241, 245, 249, 0.95) !important;
+}
+.theme-light .bg-black\/60 {
+  background-color: rgba(241, 245, 249, 0.75) !important;
+}
+.theme-light .bg-black\/40 {
+  background-color: rgba(226, 232, 240, 0.6) !important;
+}
+.theme-light .bg-black\/30 {
+  background-color: rgba(226, 232, 240, 0.4) !important;
+}
+.theme-light .bg-black\/20 {
+  background-color: rgba(241, 245, 249, 0.4) !important;
+}
+.theme-light .bg-white\/5 {
+  background-color: rgba(15, 23, 42, 0.04) !important;
+}
+.theme-light .bg-white\/10 {
+  background-color: rgba(15, 23, 42, 0.08) !important;
+}
+.theme-light .bg-brand-ink\/90 {
+  background-color: rgba(248, 250, 252, 0.95) !important;
+}
+.theme-light .bg-brand-ink\/80 {
+  background-color: #FFFFFF !important;
+}
+.theme-light .bg-brand-ink\/95 {
+  background-color: rgba(255, 255, 255, 0.98) !important;
+}
+.theme-light .glass-panel {
+  background-color: #FFFFFF !important;
+  border-color: rgba(15, 23, 42, 0.08) !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.04) !important;
+}
+.theme-light .cinematic-grid {
+  background-image: radial-gradient(circle at 1px 1px, rgba(15, 23, 42, 0.04) 1px, transparent 0);
 }
 
 @layer base {
   body {
     background-color: var(--color-brand-ink);
-    color: #E5E5E5;
-    @apply font-sans;
+    color: var(--theme-text);
+    @apply font-sans transition-colors duration-200;
   }
 }
 

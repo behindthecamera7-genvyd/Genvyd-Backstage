@@ -166,6 +166,21 @@ function AppBody() {
   const [view, setView] = useState<"projects" | "editor" | "gallery">("projects");
   const [editorMode, setEditorMode] = useState<"list" | "grid">("list");
 
+  // Theme state: dark (charcoal studio) or light mode
+  const [theme, setTheme] = useState<"dark" | "light">(() => {
+    if (typeof window !== "undefined") {
+      const savedTheme = localStorage.getItem("genvyd_theme");
+      if (savedTheme === "light" || savedTheme === "dark") return savedTheme;
+    }
+    return "dark";
+  });
+
+  const toggleTheme = () => {
+    const nextTheme = theme === "dark" ? "light" : "dark";
+    setTheme(nextTheme);
+    localStorage.setItem("genvyd_theme", nextTheme);
+  };
+
   // AI Preview Crafting Desk state
   const [activeCraftingShot, setActiveCraftingShot] = useState<Shot | null>(null);
   const [craftingPrompt, setCraftingPrompt] = useState("");
@@ -625,9 +640,18 @@ function AppBody() {
         })
       });
 
-      const data = res.ok ? await res.json() : null;
+      let data: any = null;
+      const contentType = res.headers.get("content-type") || "";
+      if (contentType.includes("application/json")) {
+        try {
+          data = await res.json();
+        } catch (parseErr) {
+          console.error("Failed to parse JSON response:", parseErr);
+        }
+      }
+
       if (!res.ok || !data || !data.imageUrl) {
-        const errorMsg = data?.error || `Server responded with status ${res.status}`;
+        const errorMsg = data?.error || `Server responded with status ${res.status}. If you just updated the app, please wait a moment or click the restart button.`;
         throw new Error(errorMsg);
       }
 
@@ -666,9 +690,18 @@ function AppBody() {
           })
         });
 
-        const data = await res.json();
-        if (!res.ok) {
-          throw new Error(data.error || `Option ${index + 1} failed`);
+        let data: any = null;
+        const contentType = res.headers.get("content-type") || "";
+        if (contentType.includes("application/json")) {
+          try {
+            data = await res.json();
+          } catch (parseErr) {
+            console.error("Failed to parse JSON response:", parseErr);
+          }
+        }
+
+        if (!res.ok || !data || !data.imageUrl) {
+          throw new Error(data?.error || `Draft variant ${index + 1} request returned status ${res.status}`);
         }
         return data.imageUrl;
       });
@@ -681,7 +714,7 @@ function AppBody() {
       if (isMissingKey) {
         setGenerationError("Key Requirement: Image generation requires a Gemini API Key. Click the 🔑 icon in the header to set yours.");
       } else {
-        setGenerationError(err.message || "Creative engine timed out. Please try modifying your prompt text.");
+        setGenerationError(err.message || "Creative engine timed out. Please try modifying your prompt.");
       }
     } finally {
       setGenerationLoading(false);
@@ -1170,13 +1203,20 @@ function AppBody() {
 
   if (view === "projects") {
     return (
-      <div className="min-h-screen bg-brand-ink text-white p-8 cinematic-grid">
+      <div className={`min-h-screen bg-brand-ink text-white p-8 cinematic-grid theme-${theme}`}>
         <div className="max-w-6xl mx-auto space-y-12">
           <div className="flex items-center justify-between">
             <h1 className="text-4xl font-display tracking-tight text-white">
               Genvyd <span className="text-brand-red">Backstage</span>
             </h1>
             <div className="flex items-center gap-4">
+              <button 
+                onClick={toggleTheme}
+                className="bg-white/5 hover:bg-white/10 border border-white/5 px-4 py-3 rounded-xl flex items-center gap-2 text-xs font-mono tracking-wider transition-all cursor-pointer"
+                title="Toggle color theme"
+              >
+                {theme === "dark" ? "☀️ Light" : "🌙 Dark"}
+              </button>
               <button 
                 onClick={createProject}
                 className="bg-white text-black font-bold px-6 py-3 rounded-xl flex items-center gap-2 hover:bg-brand-gold transition-all"
@@ -1393,7 +1433,7 @@ function AppBody() {
 
   if (!brandReport) {
     return (
-      <div className="min-h-screen cinematic-grid flex flex-col items-center justify-center p-6 bg-brand-ink text-white">
+      <div className={`min-h-screen cinematic-grid flex flex-col items-center justify-center p-6 bg-brand-ink text-white theme-${theme}`}>
         <div className="absolute top-8 left-8 flex items-center gap-6 no-print">
           <button 
             onClick={() => setView("projects")}
@@ -1412,6 +1452,14 @@ function AppBody() {
             title="Configure Deployed Gemini API Key"
           >
             🔑 {clientApiKey ? "Custom Key Set" : "Setup Deployed API Key"}
+          </button>
+
+          <button 
+            onClick={toggleTheme}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-white/5 hover:bg-white/10 text-white/50 hover:text-white rounded-lg text-[10px] uppercase font-mono tracking-widest border border-white/5 hover:border-white/10 transition-all cursor-pointer"
+            title="Toggle color theme"
+          >
+            {theme === "dark" ? "☀️ Light Mode" : "🌙 Dark Mode"}
           </button>
         </div>
 
@@ -1607,7 +1655,7 @@ function AppBody() {
   }
 
   return (
-    <div className="min-h-screen bg-brand-ink text-white font-sans selection:bg-brand-red selection:text-white">
+    <div className={`min-h-screen bg-brand-ink text-white font-sans selection:bg-brand-red selection:text-white theme-${theme}`}>
       {/* Header */}
       <header className="border-b border-white/5 p-6 flex flex-wrap items-center justify-between gap-6 sticky top-0 bg-brand-ink/90 backdrop-blur-xl z-[100]">
         <div className="flex items-center gap-6">
@@ -1746,6 +1794,14 @@ function AppBody() {
             title="Configure Deployed Gemini API Key"
           >
             🔑 {clientApiKey ? "Custom Key Set" : "Setup Deployed API Key"}
+          </button>
+
+          <button 
+            onClick={toggleTheme}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-white/5 hover:bg-white/10 text-white/50 hover:text-white rounded-lg text-[10px] uppercase font-mono tracking-widest border border-white/5 hover:border-white/10 transition-all cursor-pointer"
+            title="Toggle theme mode"
+          >
+            {theme === "dark" ? "☀️ Light Mode" : "🌙 Dark Mode"}
           </button>
 
           <button 
