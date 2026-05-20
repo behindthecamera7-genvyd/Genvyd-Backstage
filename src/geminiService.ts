@@ -333,4 +333,40 @@ export async function generateStyleSpec(directive: string, scriptContext?: strin
   }
 }
 
+export async function generateImageClient(prompt: string, aspectRatio: string): Promise<string> {
+  const ai = getAI();
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash-image',
+      contents: {
+        parts: [{ text: prompt }]
+      },
+      config: {
+        imageConfig: {
+          aspectRatio: aspectRatio || "16:9"
+        }
+      }
+    });
+
+    let base64Image = "";
+    if (response?.candidates?.[0]?.content?.parts) {
+      for (const part of response.candidates[0].content.parts) {
+        if (part.inlineData) {
+          base64Image = part.inlineData.data;
+          break;
+        }
+      }
+    }
+
+    if (!base64Image) {
+      throw new Error("No output bytes. The prompt may have triggered Gemini safety filters.");
+    }
+
+    return `data:image/png;base64,${base64Image}`;
+  } catch (error: any) {
+    console.error("Direct browser-side image generation failed:", error);
+    throw new Error(error?.message || "Browser image generation failed. Verify your API key is correctly entered.");
+  }
+}
+
 

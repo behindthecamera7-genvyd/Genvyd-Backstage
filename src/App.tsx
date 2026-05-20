@@ -37,7 +37,7 @@ import {
   Cloud,
   CloudOff
 } from "lucide-react";
-import { generateBrandReport, generateShotSequence, regenerateShotPrompt, refineAllPrompts, generateStyleSpec, setLocalAPIKey } from "./geminiService";
+import { generateBrandReport, generateShotSequence, regenerateShotPrompt, refineAllPrompts, generateStyleSpec, setLocalAPIKey, generateImageClient } from "./geminiService";
 import { BrandReport, Shot, Project } from "./types";
 import JSZip from "jszip";
 import * as XLSX from "xlsx";
@@ -628,38 +628,59 @@ function AppBody() {
     setLoadingMessage("Generating cinematic preview...");
     setApiError(null);
     try {
-      const res = await fetch("/api/generate-image", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          prompt: promptText,
-          aspectRatio: ratio,
-          clientKey: clientApiKey || localStorage.getItem("local_gemini_api_key") || undefined,
-        })
-      });
+      let imageUrl: string | null = null;
 
-      let data: any = null;
-      const contentType = res.headers.get("content-type") || "";
-      if (contentType.includes("application/json")) {
-        try {
-          data = await res.json();
-        } catch (parseErr) {
-          console.error("Failed to parse JSON response:", parseErr);
+      try {
+        const res = await fetch("/api/generate-image", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            prompt: promptText,
+            aspectRatio: ratio,
+            clientKey: clientApiKey || localStorage.getItem("local_gemini_api_key") || undefined,
+          })
+        });
+
+        let data: any = null;
+        const contentType = res.headers.get("content-type") || "";
+        if (contentType.includes("application/json")) {
+          try {
+            data = await res.json();
+          } catch (parseErr) {
+            console.error("Failed to parse JSON response:", parseErr);
+          }
+        }
+
+        if (res.ok && data && data.imageUrl) {
+          imageUrl = data.imageUrl;
+        } else {
+          // If server failed, try client side generation
+          const localKey = clientApiKey || localStorage.getItem("local_gemini_api_key");
+          if (localKey) {
+            console.log("Server API failed. Trying direct client image generate fallback...");
+            imageUrl = await generateImageClient(promptText, ratio);
+          } else {
+            const errorMsg = data?.error || `Server responded with status ${res.status}. If running as a static export, please make sure you set your browser API key via the key icon in the header.`;
+            throw new Error(errorMsg);
+          }
+        }
+      } catch (fetchErr: any) {
+        console.warn("Server generation failed. Attempting browser client-side fallback:", fetchErr);
+        const localKey = clientApiKey || localStorage.getItem("local_gemini_api_key");
+        if (localKey) {
+          imageUrl = await generateImageClient(promptText, ratio);
+        } else {
+          throw new Error("Unable to contact backend image service, and no browser API Key is configured. Click the 🔑 key icon in the upper right header to set yours.");
         }
       }
 
-      if (!res.ok || !data || !data.imageUrl) {
-        const errorMsg = data?.error || `Server responded with status ${res.status}. If you just updated the app, please wait a moment or click the restart button.`;
-        throw new Error(errorMsg);
-      }
-
       const shot = shots.find(s => s.id === shotId);
-      if (!shot) return;
+      if (!shot || !imageUrl) return;
 
       const newVersions = shot.versions.map(v => 
-        v.id === shot.selectedVersionId ? { ...v, imagePreview: data.imageUrl } : v
+        v.id === shot.selectedVersionId ? { ...v, imagePreview: imageUrl } : v
       );
       updateShot(shotId, { versions: newVersions });
     } catch (error: any) {
@@ -678,32 +699,49 @@ function AppBody() {
 
     try {
       const promises = Array.from({ length: 3 }).map(async (_, index) => {
-        const res = await fetch("/api/generate-image", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            prompt: craftingPrompt,
-            aspectRatio: craftingAspectRatio,
-            clientKey: clientApiKey || localStorage.getItem("local_gemini_api_key") || undefined,
-          })
-        });
+        try {
+          const res = await fetch("/api/generate-image", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              prompt: craftingPrompt,
+              aspectRatio: craftingAspectRatio,
+              clientKey: clientApiKey || localStorage.getItem("local_gemini_api_key") || undefined,
+            })
+          });
 
-        let data: any = null;
-        const contentType = res.headers.get("content-type") || "";
-        if (contentType.includes("application/json")) {
-          try {
-            data = await res.json();
-          } catch (parseErr) {
-            console.error("Failed to parse JSON response:", parseErr);
+          let data: any = null;
+          const contentType = res.headers.get("content-type") || "";
+          if (contentType.includes("application/json")) {
+            try {
+              data = await res.json();
+            } catch (parseErr) {
+              console.error("Failed to parse JSON response:", parseErr);
+            }
+          }
+
+          if (res.ok && data && data.imageUrl) {
+            return data.imageUrl;
+          } else {
+            const localKey = clientApiKey || localStorage.getItem("local_gemini_api_key");
+            if (localKey) {
+              console.log(`Server draft variant ${index + 1} failed. Trying direct client fallback...`);
+              return await generateImageClient(craftingPrompt, craftingAspectRatio);
+            } else {
+              throw new Error(data?.error || `Draft variant ${index + 1} request returned status ${res.status}`);
+            }
+          }
+        } catch (fetchErr: any) {
+          console.warn(`Server variant ${index + 1} failed. Attempting browser client fallback:`, fetchErr);
+          const localKey = clientApiKey || localStorage.getItem("local_gemini_api_key");
+          if (localKey) {
+            return await generateImageClient(craftingPrompt, craftingAspectRatio);
+          } else {
+            throw new Error(`Draft variant ${index + 1} image service contact failed, and no client key is set.`);
           }
         }
-
-        if (!res.ok || !data || !data.imageUrl) {
-          throw new Error(data?.error || `Draft variant ${index + 1} request returned status ${res.status}`);
-        }
-        return data.imageUrl;
       });
 
       const results = await Promise.all(promises);
